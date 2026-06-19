@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+// @ts-ignore
 import { db } from './firebase';
 import {
   doc,
@@ -14,31 +15,33 @@ import {
 
 export default function App() {
   // --- ESTADOS DE GESTIÓN DE EQUIPOS ---
-  const [listaEquipos, setListaEquipos] = useState([]);
-  const [equipoSeleccionado, setEquipoSeleccionado] = useState('');
-  const [jugadorasDelEquipo, setJugadorasDelEquipo] = useState([]);
+  const [listaEquipos, setListaEquipos] = useState<any[]>([]);
+  const [equipoSeleccionado, setEquipoSeleccionado] = useState<string>('');
+  const [jugadorasDelEquipo, setJugadorasDelEquipo] = useState<string[]>([]);
 
-  const [modoAdmin, setModoAdmin] = useState(false);
-  const [nuevoNombreEquipo, setNuevoNombreEquipo] = useState('');
-  const [nuevasJugadorasTexto, setNuevasJugadorasTexto] = useState('');
+  const [modoAdmin, setModoAdmin] = useState<boolean>(false);
+  const [nuevoNombreEquipo, setNuevoNombreEquipo] = useState<string>('');
+  const [nuevasJugadorasTexto, setNuevasJugadorasTexto] = useState<string>('');
 
   // Estados de Configuración del Partido
-  const [partidoIniciado, setPartidoIniciado] = useState(false);
-  const [vista, setVista] = useState('telefono');
-  const [rival, setRival] = useState('');
-  const [cancha, setCancha] = useState('');
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [titulares, setTitulares] = useState([]);
-  const [suplentes, setSuplentes] = useState([]);
+  const [partidoIniciado, setPartidoIniciado] = useState<boolean>(false);
+  const [vista, setVista] = useState<string>('telefono');
+  const [rival, setRival] = useState<string>('');
+  const [cancha, setCancha] = useState<string>('');
+  const [fecha, setFecha] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [titulares, setTitulares] = useState<string[]>([]);
+  const [suplentes, setSuplentes] = useState<string[]>([]);
 
   // Estados del Juego
-  const [cuartoActual, setCuartoActual] = useState('1Q');
-  const [segundos, setSegundos] = useState(0);
-  const [corriendo, setCorriendo] = useState(false);
-  const idIntervalo = useRef(null);
-  const [idPartido, setIdPartido] = useState('');
+  const [cuartoActual, setCuartoActual] = useState<string>('1Q');
+  const [segundos, setSegundos] = useState<number>(0);
+  const [corriendo, setCorriendo] = useState<boolean>(false);
+  const idIntervalo = useRef<any>(null);
+  const [idPartido, setIdPartido] = useState<string>('');
 
-  const [estadisticas, setEstadisticas] = useState({
+  const [estadisticas, setEstadisticas] = useState<any>({
     '1Q': {
       ingresos_area_favor: 0,
       ingresos_area_contra: 0,
@@ -90,15 +93,15 @@ export default function App() {
   });
 
   // --- ESTADOS PARA EL HISTORIAL ---
-  const [listaPartidosViejos, setListaPartidosViejos] = useState([]);
+  const [listaPartidosViejos, setListaPartidosViejos] = useState<any[]>([]);
   const [partidoHistorialSeleccionado, setPartidoHistorialSeleccionado] =
-    useState(null);
-  const [vistaHistorial, setVistaHistorial] = useState(false);
+    useState<any>(null);
+  const [vistaHistorial, setVistaHistorial] = useState<boolean>(false);
 
   const obtenerEquiposFirebase = async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'equipos'));
-      const equiposCargados = [];
+      const equiposCargados: any[] = [];
       querySnapshot.forEach((doc) => {
         equiposCargados.push({ id: doc.id, ...doc.data() });
       });
@@ -112,7 +115,7 @@ export default function App() {
   const obtenerPartidosHistorial = async () => {
     try {
       const querySnapshot = await getDocs(collection(db, 'partidos'));
-      const partidosCargados = [];
+      const partidosCargados: any[] = [];
       querySnapshot.forEach((doc) => {
         partidosCargados.push({ id: doc.id, ...doc.data() });
       });
@@ -133,7 +136,7 @@ export default function App() {
     obtenerPartidosHistorial();
   }, []);
 
-  const manejarCambioEquipo = (id) => {
+  const manejarCambioEquipo = (id: string) => {
     setEquipoSeleccionado(id);
     const equipo = listaEquipos.find((eq) => eq.id === id);
     setJugadorasDelEquipo(equipo ? equipo.jugadoras : []);
@@ -141,7 +144,7 @@ export default function App() {
     setSuplentes([]);
   };
 
-  const crearNuevoEquipo = async (e) => {
+  const crearNuevoEquipo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nuevoNombreEquipo.trim()) return;
     const idSugerido = nuevoNombreEquipo.toLowerCase().replace(/ /g, '_');
@@ -158,7 +161,7 @@ export default function App() {
     }
   };
 
-  const agregarJugadorasAlEquipo = async (e) => {
+  const agregarJugadorasAlEquipo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nuevasJugadorasTexto.trim() || !equipoSeleccionado) return;
     const nuevasJugadorasArr = nuevasJugadorasTexto
@@ -171,16 +174,18 @@ export default function App() {
       });
       setNuevasJugadorasTexto('');
       const equiposActualizados = await obtenerEquiposFirebase();
-      const eqActualizado = equiposActualizados.find(
-        (eq) => eq.id === equipoSeleccionado
-      );
-      setJugadorasDelEquipo(eqActualizado ? eqActualizado.jugadoras : []);
+      if (equiposActualizados) {
+        const eqActualizado = equiposActualizados.find(
+          (eq) => eq.id === equipoSeleccionado
+        );
+        setJugadorasDelEquipo(eqActualizado ? eqActualizado.jugadoras : []);
+      }
     } catch (e) {
       console.error(e);
     }
   };
 
-  const eliminarJugadoraIndividual = async (nombreJugadora) => {
+  const eliminarJugadoraIndividual = async (nombreJugadora: string) => {
     const seguro = window.confirm(
       `¿Querés eliminar a ${nombreJugadora} de esta categoría?`
     );
@@ -207,7 +212,7 @@ export default function App() {
         if (docSnap.exists()) {
           const datos = docSnap.data();
           if (datos.estadisticas) {
-            setEstadisticas((prev) => {
+            setEstadisticas((prev: any) => {
               const nuevo = { ...prev };
               Object.keys(nuevo).forEach((q) => {
                 if (datos.estadisticas[q])
@@ -240,7 +245,7 @@ export default function App() {
     return () => clearInterval(idIntervalo.current);
   }, [corriendo]);
 
-  const comenzarPartidoEnBaseDeDatos = async (e) => {
+  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rival.trim()) return alert('Poné el nombre del rival');
     const nuevoId = `${fecha}_${rival.toLowerCase().replace(/ /g, '_')}`;
@@ -263,7 +268,7 @@ export default function App() {
     setPartidoIniciado(true);
   };
 
-  const manejarSuma = async (evento) => {
+  const manejarSuma = async (evento: string) => {
     try {
       await updateDoc(doc(db, 'partidos', idPartido), {
         [`estadisticas.${cuartoActual}.${evento}`]: increment(1),
@@ -273,7 +278,7 @@ export default function App() {
     }
   };
 
-  const manejarResta = async (evento) => {
+  const manejarResta = async (evento: string) => {
     if (estadisticas[cuartoActual][evento] <= 0) return;
     try {
       await updateDoc(doc(db, 'partidos', idPartido), {
@@ -351,7 +356,7 @@ export default function App() {
     }
   };
 
-  const reingresarAPartido = (p) => {
+  const reingresarAPartido = (p: any) => {
     setIdPartido(p.id);
     setRival(p.rival);
     setCancha(p.cancha || '');
@@ -364,7 +369,7 @@ export default function App() {
     setPartidoIniciado(true);
   };
 
-  const eliminarPartidoHistorial = async (idPart) => {
+  const eliminarPartidoHistorial = async (idPart: string) => {
     const seguro = window.confirm(
       '¿Estás seguro de que querés ELIMINAR este partido definitivamente de Firebase? Esta acción no se puede deshacer.'
     );
@@ -378,7 +383,7 @@ export default function App() {
     }
   };
 
-  const asignarRol = (nombre, rol) => {
+  const asignarRol = (nombre: string, rol: string) => {
     const tFiltrado = titulares.filter((j) => j !== nombre);
     const sFiltrado = suplentes.filter((j) => j !== nombre);
     if (rol === 'titular') {
@@ -393,12 +398,12 @@ export default function App() {
     }
   };
 
-  const calcularTotal = (campo) =>
+  const calcularTotal = (campo: string) =>
     estadisticas['1Q'][campo] +
     estadisticas['2Q'][campo] +
     estadisticas['3Q'][campo] +
     estadisticas['4Q'][campo];
-  const formatearTiempo = (totSegundos) => {
+  const formatearTiempo = (totSegundos: number) => {
     const min = Math.floor(totSegundos / 60);
     const seg = totSegundos % 60;
     return `${min.toString().padStart(2, '0')}:${seg
@@ -406,7 +411,7 @@ export default function App() {
       .padStart(2, '0')}`;
   };
 
-  const exportarAExcel = async (partidoEspecifico = null) => {
+  const exportarAExcel = async (partidoEspecifico: any = null) => {
     const r = partidoEspecifico ? partidoEspecifico.rival : rival;
     const f = partidoEspecifico ? partidoEspecifico.fecha : fecha;
     const c = partidoEspecifico ? partidoEspecifico.cancha : cancha;
@@ -436,19 +441,19 @@ export default function App() {
       const fontNegrita = { name: 'Calibri', bold: true, size: 11 };
       const fontNormal = { name: 'Calibri', size: 11 };
       const borderFino = {
-        top: { style: 'thin' },
-        left: { style: 'thin' },
-        bottom: { style: 'thin' },
-        right: { style: 'thin' },
+        top: { style: 'thin' as any },
+        left: { style: 'thin' as any },
+        bottom: { style: 'thin' as any },
+        right: { style: 'thin' as any },
       };
       const fillGrisEncabezado = {
-        type: 'pattern',
-        pattern: 'solid',
+        type: 'pattern' as any,
+        pattern: 'solid' as any,
         fgColor: { argb: 'FFEFEFEF' },
       };
       const fillAzulTotal = {
-        type: 'pattern',
-        pattern: 'solid',
+        type: 'pattern' as any,
+        pattern: 'solid' as any,
         fgColor: { argb: 'FFDBEAFE' },
       };
 
@@ -538,6 +543,7 @@ export default function App() {
       const filaTotales = filaTabla + 5;
       worksheet.getCell(filaTotales, 1).value = 'TOTALES';
       worksheet.getCell(filaTotales, 1).font = fontNegrita;
+      worksheet.getCell(filaTotales, 1).border = borderFino;
       worksheet.getCell(filaTotales, 1).fill = fillAzulTotal;
       worksheet.getCell(filaTotales, 1).alignment = { horizontal: 'center' };
       ['B', 'C', 'D', 'E', 'F', 'G'].forEach((letra) => {
@@ -568,7 +574,7 @@ export default function App() {
     }
   };
 
-  const estiloInput = {
+  const estiloInput: React.CSSProperties = {
     width: '100%',
     padding: '10px',
     borderRadius: '6px',
@@ -577,7 +583,7 @@ export default function App() {
     color: 'white',
     boxSizing: 'border-box',
   };
-  const estiloBotonBase = {
+  const estiloBotonBase: React.CSSProperties = {
     padding: '24px 10px',
     borderRadius: '12px',
     fontWeight: 'bold',
@@ -589,31 +595,36 @@ export default function App() {
     userSelect: 'none',
     WebkitUserSelect: 'none',
   };
-  const estiloCeldaTh = {
+  const estiloCeldaTh: React.CSSProperties = {
     border: '1px solid #4b5563',
     padding: '12px',
     backgroundColor: '#1f2937',
     color: '#f3f4f6',
   };
-  const estiloCeldaTd = {
+  const estiloCeldaTd: React.CSSProperties = {
     border: '1px solid #374151',
     padding: '12px',
     textAlign: 'center',
   };
 
-  // --- LÓGICA DE TIEMPO ABSOLUTA CON Date.now() ---
-  const ComponenteBotonInteligente = ({ etiqueta, campo, colorFondo }) => {
-    const tiempoInicioRef = useRef(0);
-    const yaRostoRef = useRef(false);
-    const timerRestaRef = useRef(null);
+  const ComponenteBotonInteligente = ({
+    etiqueta,
+    campo,
+    colorFondo,
+  }: {
+    etiqueta: string;
+    campo: string;
+    colorFondo: string;
+  }) => {
+    const tiempoInicioRef = useRef<number>(0);
+    const yaRostoRef = useRef<boolean>(false);
+    const timerRestaRef = useRef<any>(null);
 
-    const presionarBoton = (e) => {
+    const presionarBoton = (e: any) => {
       if (e.type === 'touchstart') e.preventDefault();
-
       tiempoInicioRef.current = Date.now();
       yaRostoRef.current = false;
 
-      // Si pasan 450ms y sigue apretado, ejecutamos la resta de inmediato
       timerRestaRef.current = setTimeout(() => {
         manejarResta(campo);
         yaRostoRef.current = true;
@@ -621,13 +632,11 @@ export default function App() {
       }, 450);
     };
 
-    const soltarBoton = (e) => {
+    const soltarBoton = (e: any) => {
       if (e.type === 'touchend') e.preventDefault();
-
       clearTimeout(timerRestaRef.current);
       const duracionClick = Date.now() - tiempoInicioRef.current;
 
-      // SI se soltó rápido (menos de 400ms) Y no se ejecutó una resta previa, SUMA
       if (duracionClick < 400 && !yaRostoRef.current) {
         manejarSuma(campo);
       }
@@ -1106,12 +1115,8 @@ export default function App() {
                   value={nuevasJugadorasTexto}
                   onChange={(e) => setNuevasJugadorasTexto(e.target.value)}
                   placeholder="Delfina, Belen, Sofia, Agostina"
-                  rows="2"
-                  style={{
-                    ...estiloInput,
-                    fontFamily: 'sans-serif',
-                    resize: 'vertical',
-                  }}
+                  rows={2}
+                  style={estiloInput as any}
                 />
                 <button
                   type="submit"
@@ -1218,7 +1223,7 @@ export default function App() {
                 <select
                   value={equipoSeleccionado}
                   onChange={(e) => manejarCambioEquipo(e.target.value)}
-                  style={estiloInput}
+                  style={estiloInput as any}
                 >
                   {listaEquipos.length === 0 && (
                     <option>No hay equipos creados todavía</option>
@@ -1252,7 +1257,7 @@ export default function App() {
                     value={rival}
                     onChange={(e) => setRival(e.target.value)}
                     placeholder="Ej: Rowing"
-                    style={estiloInput}
+                    style={estiloInput as any}
                     required
                   />
                 </div>
@@ -1271,7 +1276,7 @@ export default function App() {
                     value={cancha}
                     onChange={(e) => setCancha(e.target.value)}
                     placeholder="Ej: Cancha 1"
-                    style={estiloInput}
+                    style={estiloInput as any}
                   />
                 </div>
               </div>
@@ -1289,7 +1294,7 @@ export default function App() {
                   type="date"
                   value={fecha}
                   onChange={(e) => setFecha(e.target.value)}
-                  style={estiloInput}
+                  style={estiloInput as any}
                 />
               </div>
 
