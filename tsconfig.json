@@ -6,14 +6,15 @@
     "module": "ESNext",
     "skipLibCheck": true,
 
-    /* CONFIGURACIÓN CLAVE PARA ELIMINAR LOS ERRORES DEL BUILD */
+    /* CONFIGURACIÓN ANCILLARY PARA ELIMINAR ADVERTENCIAS DE VERSIONES */
+    "ignoreDeprecations": "6.0",
+    "moduleResolution": "bundler",
+    
     "strict": false,
     "noImplicitAny": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "strictNullChecks": false,
     
-    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
