@@ -5,12 +5,9 @@
     "lib": ["DOM", "DOM.Iterable", "ES2020"],
     "module": "ESNext",
     "skipLibCheck": true,
-
-    /* SOLUCIONA LAS ÚLTIMAS TRABAS DE IMPORTACIÓN */
+    
     "ignoreDeprecations": "6.0",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveActions": true,
     
     "strict": false,
     "noImplicitAny": false,
