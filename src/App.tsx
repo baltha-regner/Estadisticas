@@ -1463,7 +1463,7 @@ export default function App() {
                     <textarea
                       value={nuevasJugadorasTexto}
                       onChange={(e) => setNuevasJugadorasTexto(e.target.value)}
-                      placeholder="Delfina, Belen, Sofia, Agostina"
+                      placeholder="(Nombres separados por comas)"
                       rows={2}
                       style={estiloInput as any}
                     />
