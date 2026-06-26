@@ -59,7 +59,13 @@ const BOTONES_POR_DEFECTO = [
   { id: "cortos_contra", nombre: "Corto Contra", color: "#e11d48", orden: 6 },
 ];
 
-// Función auxiliar para formatear MM:SS
+const CATEGORIAS_SISTEMA = [
+  { id: "sub14", nombre: "Sub 14 Damas" },
+  { id: "sub16", nombre: "Sub 16 Damas" },
+  { id: "sub18", nombre: "Sub 18 Damas" },
+  { id: "primera", nombre: "Primera División" },
+];
+
 const formatearTiempo = (totalSegundos: number) => {
   const mins = Math.floor(totalSegundos / 60);
   const secs = totalSegundos % 60;
@@ -69,13 +75,13 @@ const formatearTiempo = (totalSegundos: number) => {
 };
 
 export default function App() {
-  // --- ESTADOS DE AUTENTICACIÓN Y ROLES ---
+  // --- ESTADOS DE AUTENTICACIÓN ---
   const [usuario, setUsuario] = useState<any>(null);
   const [perfilUsuario, setPerfilUsuario] = useState<any>(null);
   const [cargandoAuth, setCargandoAuth] = useState<boolean>(true);
-  const [email, setEmail] = useState<string>("");
+
+  const [identificadorProfe, setIdentificadorProfe] = useState<string>("");
   const [password, setPassword] = useState<string>("");
-  const [esRegistro, setEsRegistro] = useState<boolean>(false);
   const [errorAuth, setErrorAuth] = useState<string>("");
 
   // --- ESTADOS DE GESTIÓN DE EQUIPOS Y USUARIOS ---
@@ -89,15 +95,12 @@ export default function App() {
   const [nuevoNombreEquipo, setNuevoNombreEquipo] = useState<string>("");
   const [nuevasJugadorasTexto, setNuevasJugadorasTexto] = useState<string>("");
 
-  // Estados para la edición directa de nombres de jugadoras
   const [jugadoraEditando, setJugadoraEditando] = useState<string | null>(null);
   const [nuevoNombreEditado, setNuevoNombreEditado] = useState<string>("");
 
-  // Estados para la creación de un nuevo botón dinámico
   const [nuevoBtnNombre, setNuevoBtnNombre] = useState<string>("");
   const [nuevoBtnColor, setNuevoBtnColor] = useState<string>("#4b5563");
 
-  // --- ESTADO PARA SUBMENÚ FLOTANTE ---
   const [mostrarSubmenuGol, setMostrarSubmenuGol] = useState<boolean>(false);
 
   // Estados de Configuración del Partido
@@ -125,13 +128,13 @@ export default function App() {
     "4Q": {},
   });
 
-  // --- ESTADOS PARA EL HISTORIAL ---
+  // --- HISTORIAL ---
   const [listaPartidosViejos, setListaPartidosViejos] = useState<any[]>([]);
   const [partidoHistorialSeleccionado, setPartidoHistorialSeleccionado] =
     useState<any>(null);
   const [vistaHistorial, setVistaHistorial] = useState<boolean>(false);
 
-  // --- TIMER DEL CRONÓMETRO ---
+  // --- TIMER ---
   useEffect(() => {
     if (corriendo) {
       idIntervalo.current = setInterval(() => {
@@ -143,7 +146,25 @@ export default function App() {
     return () => clearInterval(idIntervalo.current);
   }, [corriendo]);
 
-  // --- CONTROLADOR DEL ESTADO DE SESIÓN ---
+  // --- LÓGICA DE EVENTOS EN TIEMPO REAL CON FIREBASE ---
+  useEffect(() => {
+    if (partidoIniciado && idPartido) {
+      const desuscribirPartido = onSnapshot(
+        doc(db, "partidos_club", idPartido),
+        (docSnap) => {
+          if (docSnap.exists()) {
+            const datos = docSnap.data();
+            if (datos.estadisticas) {
+              setEstadisticas(datos.estadisticas);
+            }
+          }
+        }
+      );
+      return () => desuscribirPartido();
+    }
+  }, [partidoIniciado, idPartido]);
+
+  // --- CONTROLADOR DE SESIÓN ---
   useEffect(() => {
     const desuscribirAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -152,10 +173,11 @@ export default function App() {
         if (docSnap.exists()) {
           setPerfilUsuario(docSnap.data());
         } else {
+          const esCoord = user.email === "coordinador@talleres.com";
           const defecto = {
             email: user.email,
-            rol: "entrenador",
-            categoriasPermitidas: [],
+            rol: esCoord ? "coordinador" : "entrenador",
+            categoriasPermitidas: esCoord ? [] : ["sub14"],
           };
           setPerfilUsuario(defecto);
         }
@@ -171,13 +193,14 @@ export default function App() {
     return () => desuscribirAuth();
   }, []);
 
-  // --- CARGA CENTRALIZADA Y FILTRADA POR PERMISOS ---
   const cargarDatosClub = async (perfil: any) => {
     if (!perfil) return;
     try {
       const queryEquipos = await getDocs(collection(db, "equipos_club"));
       const todosLosEquipos: any[] = [];
-      querySnapshotToArray(queryEquipos, todosLosEquipos);
+      queryEquipos.forEach((doc: any) => {
+        todosLosEquipos.push({ id: doc.id, ...doc.data() });
+      });
 
       let equiposFiltrados = todosLosEquipos;
       if (perfil.rol !== "coordinador") {
@@ -207,7 +230,9 @@ export default function App() {
 
       const queryPartidos = await getDocs(collection(db, "partidos_club"));
       const todosLosPartidos: any[] = [];
-      querySnapshotToArray(queryPartidos, todosLosPartidos);
+      queryPartidos.forEach((doc: any) => {
+        todosLosPartidos.push({ id: doc.id, ...doc.data() });
+      });
 
       let partidosFiltrados = todosLosPartidos;
       if (perfil.rol !== "coordinador") {
@@ -222,7 +247,7 @@ export default function App() {
         obtenerListaProfesDeFirestore();
       }
     } catch (e) {
-      console.error("Error al cargar datos globales del club: ", e);
+      console.error(e);
     }
   };
 
@@ -239,17 +264,47 @@ export default function App() {
     }
   };
 
-  const querySnapshotToArray = (snapshot: any, arr: any[]) => {
-    snapshot.forEach((doc: any) => {
-      arr.push({ id: doc.id, ...doc.data() });
-    });
-  };
-
   useEffect(() => {
     if (perfilUsuario) {
       cargarDatosClub(perfilUsuario);
     }
   }, [perfilUsuario]);
+
+  // --- MANEJADORES DE SUMA Y RESTA (CON CONTROLES DE ERRORES) ---
+  const manejarSuma = async (metricaId: string) => {
+    if (!idPartido) return;
+    try {
+      const partidoRef = doc(db, "partidos_club", idPartido);
+      await updateDoc(partidRef, {
+        [`estadisticas.${cuartoActual}.${metricaId}`]: increment(1),
+      });
+    } catch (err) {
+      console.error("Error al sumar métrica:", err);
+    }
+  };
+
+  const manejarResta = async (metricaId: string) => {
+    if (!idPartido) return;
+    const valorActual = estadisticas[cuartoActual]?.[metricaId] || 0;
+    if (valorActual <= 0) return; // No permitir números negativos
+    try {
+      const partidoRef = doc(db, "partidos_club", idPartido);
+      await updateDoc(partidRef, {
+        [`estadisticas.${cuartoActual}.${metricaId}`]: increment(-1),
+      });
+    } catch (err) {
+      console.error("Error al restar métrica:", err);
+    }
+  };
+
+  const calcularTotal = (metricaId: string, statsPersonalizadas?: any) => {
+    const fuente = statsPersonalizadas || estadisticas;
+    let total = 0;
+    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
+      total += fuente?.[q]?.[metricaId] || 0;
+    });
+    return total;
+  };
 
   const manejarCambioEquipo = (id: string) => {
     setEquipoSeleccionado(id);
@@ -338,35 +393,50 @@ export default function App() {
     guardarBotonesEnFirestore(listaCorregida);
   };
 
-  const manejarAuth = async (e: React.FormEvent) => {
+  const manejarLoginClub = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorAuth("");
+    const userClean = identificadorProfe.trim().toLowerCase();
+    if (!userClean || !password.trim())
+      return setErrorAuth("Completa los datos de acceso");
+
+    const emailSimulado = `${userClean}@talleres.com`;
+
     try {
-      if (esRegistro) {
-        const credencial = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
-        await setDoc(doc(db, "usuarios", credencial.user.uid), {
-          email: email,
-          rol: "entrenador",
-          categoriasPermitidas: [],
-        });
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-      }
+      await signInWithEmailAndPassword(auth, emailSimulado, password);
     } catch (error: any) {
-      console.error(error);
-      setErrorAuth("Error en la autenticación.");
+      if (
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/invalid-credential"
+      ) {
+        try {
+          const credencial = await createUserWithEmailAndPassword(
+            auth,
+            emailSimulado,
+            password
+          );
+          const esCoord = userClean === "coordinador";
+
+          const nuevoPerfil = {
+            email: emailSimulado,
+            identificador: userClean,
+            rol: esCoord ? "coordinador" : "entrenador",
+            categoriasPermitidas: esCoord ? [] : ["sub14"],
+          };
+
+          await setDoc(doc(db, "usuarios", credencial.user.uid), nuevoPerfil);
+          setPerfilUsuario(nuevoPerfil);
+        } catch (crearErr) {
+          setErrorAuth("Contraseña incorrecta o error de conexión.");
+        }
+      } else {
+        setErrorAuth("Usuario o contraseña incorrectos.");
+      }
     }
   };
 
-  const cerrarSesion = () => {
-    if (window.confirm("¿Querés cerrar sesión?")) {
-      signOut(auth);
-      setPartidoIniciado(false);
-    }
+  const cerrarSesion = async () => {
+    await signOut(auth);
   };
 
   const crearNuevoEquipo = async (e: React.FormEvent) => {
@@ -384,7 +454,9 @@ export default function App() {
       setNuevoNombreEquipo("");
       const queryEquipos = await getDocs(collection(db, "equipos_club"));
       const todosLosEquipos: any[] = [];
-      querySnapshotToArray(queryEquipos, todosLosEquipos);
+      queryEquipos.forEach((doc: any) => {
+        todosLosEquipos.push({ id: doc.id, ...doc.data() });
+      });
       setListaEquipos(todosLosEquipos);
     } catch (e) {
       console.error(e);
@@ -429,7 +501,7 @@ export default function App() {
       setJugadoraEditando(null);
       setNuevoNombreEditado("");
     } catch (e) {
-      console.error("Error al editar jugadora: ", e);
+      console.error(e);
     }
   };
 
@@ -447,26 +519,21 @@ export default function App() {
     }
   };
 
-  // --- ESCUCHA EN VIVO DEL PARTIDO ---
-  useEffect(() => {
-    if (!idPartido || !usuario) return;
-    const desuscribir = onSnapshot(
-      doc(db, "partidos_club", idPartido),
-      (docSnap) => {
-        if (docSnap.exists()) {
-          const datos = docSnap.data();
-          if (datos.estadisticas) setEstadisticas(datos.estadisticas);
-          if (datos.rival) setRival(datos.rival);
-          if (datos.cancha) setCancha(datos.cancha);
-          if (datos.fecha) setFecha(datos.fecha);
-          if (datos.titulares) setTitulares(datos.titulares);
-          if (datos.suplentes) setSuplentes(datos.suplentes);
-          setPartidoIniciado(true);
-        }
-      }
-    );
-    return () => desuscribir();
-  }, [idPartido, usuario]);
+  const asignarRol = (
+    nombre: string,
+    rol: "titular" | "suplente" | "ninguno"
+  ) => {
+    if (rol === "titular") {
+      setSuplentes((prev) => prev.filter((j) => j !== nombre));
+      if (!titulares.includes(nombre)) setTitulares((p) => [...p, nombre]);
+    } else if (rol === "suplente") {
+      setTitulares((prev) => prev.filter((j) => j !== nombre));
+      if (!suplentes.includes(nombre)) setSuplentes((p) => [...p, nombre]);
+    } else {
+      setTitulares((prev) => prev.filter((j) => j !== nombre));
+      setSuplentes((prev) => prev.filter((j) => j !== nombre));
+    }
+  };
 
   const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -509,95 +576,41 @@ export default function App() {
     setPartidoIniciado(true);
   };
 
-  const manejarSuma = async (campo: string) => {
-    if (!usuario) return;
-    const valorActual = estadisticas[cuartoActual]?.[campo] || 0;
-    try {
-      await updateDoc(doc(db, "partidos_club", idPartido), {
-        [`estadisticas.${cuartoActual}.${campo}`]: valorActual + 1,
-      });
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const manejarResta = async (campo: string) => {
-    if (!usuario) return;
-    const valorActual = estadisticas[cuartoActual]?.[campo] || 0;
-    if (valorActual <= 0) return;
-    try {
-      await updateDoc(doc(db, "partidos_club", idPartido), {
-        [`estadisticas.${cuartoActual}.${campo}`]: valorActual - 1,
-      });
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const finalizarPartido = () => {
-    if (window.confirm("¿Querés cerrar la mesa de control?")) {
-      setCorriendo(false);
-      setSegundos(0);
-      setPartidoIniciado(false);
-      setIdPartido("");
-      setRival("");
-      setCancha("");
-      setTitulares([]);
-      setSuplentes([]);
-      if (perfilUsuario) cargarDatosClub(perfilUsuario);
-    }
-  };
-
-  const reingresarAPartido = (p: any) => {
-    setIdPartido(p.id || p.id_partido);
-    setRival(p.rival);
-    setCancha(p.cancha || "");
-    setFecha(p.fecha);
-    setTitulares(p.titulares || []);
-    setSuplentes(p.suplentes || []);
-    if (p.estadisticas) setEstadisticas(p.estadisticas);
-    if (p.configuracion_botones) setBotonesDinamicos(p.configuracion_botones);
-    setVistaHistorial(false);
-    setPartidoHistorialSeleccionado(null);
+  const reingresarAPartido = (partido: any) => {
+    setIdPartido(partido.id_partido || partido.id);
+    setRival(partido.rival || "");
+    setCancha(partido.cancha || "");
+    setFecha(partido.fecha || "");
+    setTitulares(partido.titulares || []);
+    setSuplentes(partido.suplentes || []);
+    setEquipoSeleccionado(partido.id_categoria);
     setPartidoIniciado(true);
   };
 
   const eliminarPartidoHistorial = async (idPart: string) => {
-    if (!perfilUsuario) return;
-    if (!window.confirm("¿Querés ELIMINAR este partido definitivamente?"))
+    if (
+      !window.confirm(
+        "¿Estás seguro de que querés borrar permanentemente este partido del historial?"
+      )
+    )
       return;
     try {
       await deleteDoc(doc(db, "partidos_club", idPart));
       setPartidoHistorialSeleccionado(null);
-      await cargarDatosClub(perfilUsuario);
-    } catch (e) {
-      console.error(e);
+      if (perfilUsuario) cargarDatosClub(perfilUsuario);
+    } catch (err) {
+      console.error(err);
     }
   };
 
-  const asignarRol = (nombre: string, rol: string) => {
-    const tFiltrado = titulares.filter((j) => j !== nombre);
-    const sFiltrado = suplentes.filter((j) => j !== nombre);
-    if (rol === "titular") {
-      setTitulares([...tFiltrado, nombre]);
-      setSuplentes(sFiltrado);
-    } else if (rol === "suplente") {
-      setSuplentes([...sFiltrado, nombre]);
-      setTitulares(tFiltrado);
-    } else {
-      setTitulares(tFiltrado);
-      setSuplentes(sFiltrado);
+  const finalizarPartido = () => {
+    if (window.confirm("¿Querés cerrar la mesa de este partido?")) {
+      setPartidoIniciado(false);
+      setCorriendo(false);
+      setSegundos(0);
+      setIdPartido("");
+      if (perfilUsuario) cargarDatosClub(perfilUsuario);
     }
-  };
-
-  const calcularTotal = (campo: string, objEsts: any = estadisticas) => {
-    if (!objEsts) return 0;
-    return (
-      (objEsts["1Q"]?.[campo] || 0) +
-      (objEsts["2Q"]?.[campo] || 0) +
-      (objEsts["3Q"]?.[campo] || 0) +
-      (objEsts["4Q"]?.[campo] || 0)
-    );
   };
 
   const exportarAExcel = async (partidoEspecifico: any = null) => {
@@ -610,27 +623,22 @@ export default function App() {
       estadisticas,
       configuracion_botones: botonesDinamicos,
     };
-
     try {
       const ExcelJS = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet("Planilla de Juego");
-
-      // Configuración de anchos de columna para que coincida con el diseño visual
       worksheet.columns = [
-        { width: 5 }, // A: Número Titular
-        { width: 22 }, // B: Nombre Titular
-        { width: 5 }, // C: Número Suplente
-        { width: 22 }, // D: Nombre Suplente
-        { width: 15 }, // E: Separador / Columnas Estadísticas
-        { width: 15 }, // F: Columnas Estadísticas
-        { width: 15 }, // G: Columnas Estadísticas
-        { width: 15 }, // H: Observaciones / Columnas Estadísticas
+        { width: 5 },
+        { width: 22 },
+        { width: 5 },
+        { width: 22 },
+        { width: 15 },
+        { width: 15 },
+        { width: 15 },
+        { width: 15 },
       ];
 
-      // Estilos comunes
       const fontNegrita = { name: "Calibri", bold: true, size: 11 };
-      const fontNormal = { name: "Calibri", size: 11 };
       const borderFino = {
         top: { style: "thin" as any },
         left: { style: "thin" as any },
@@ -646,17 +654,14 @@ export default function App() {
         vertical: "middle" as any,
       };
 
-      // 1. TÍTULO PRINCIPAL (Fila 1)
       worksheet.mergeCells("A1:H1");
-      const cellTitulo = worksheet.getCell("A1");
-      cellTitulo.value = "PLANILLA DE ANALISIS DE PARTIDO – HOCKEY";
-      cellTitulo.font = { name: "Calibri", bold: true, size: 14 };
-      cellTitulo.alignment = alinearCentro;
+      worksheet.getCell("A1").value =
+        "PLANILLA DE ANALISIS DE PARTIDO – HOCKEY";
+      worksheet.getCell("A1").font = { name: "Calibri", bold: true, size: 14 };
+      worksheet.getCell("A1").alignment = alinearCentro;
       worksheet.getRow(1).height = 30;
 
-      // 2. ENCABEZADO DE DATOS (Fila 3)
       worksheet.getRow(3).height = 22;
-
       worksheet.getCell("A3").value = "Club:";
       worksheet.getCell("B3").value = "Talleres de Paraná";
       worksheet.getCell("C3").value = "Rival:";
@@ -667,102 +672,65 @@ export default function App() {
       worksheet.getCell("H3").value = pTarget.cancha || "";
 
       ["A3", "B3", "C3", "D3", "E3", "F3", "G3", "H3"].forEach((c) => {
-        const cell = worksheet.getCell(c);
-        cell.font = c.match(/[ACEG]3/) ? fontNegrita : fontNormal;
-        cell.border = borderFino;
-        cell.alignment = alinearCentro;
+        worksheet.getCell(c).font = fontNegrita;
+        worksheet.getCell(c).border = borderFino;
+        worksheet.getCell(c).alignment = alinearCentro;
       });
 
-      // 3. TÍTULOS DE LISTAS (Fila 5)
       worksheet.getRow(5).height = 20;
-
       worksheet.mergeCells("A5:B5");
       worksheet.getCell("A5").value = "Titulares";
-
       worksheet.mergeCells("C5:D5");
       worksheet.getCell("C5").value = "Suplentes";
-
       worksheet.mergeCells("E5:H5");
       worksheet.getCell("E5").value = "Observaciones";
 
-      ["A5", "C5", "E5"].forEach((c) => {
-        const cell = worksheet.getCell(c);
-        cell.font = fontNegrita;
-        cell.alignment = alinearIzquierda;
-      });
-
-      // 4. CARGA DE JUGADORAS NUMERADAS (Filas 6 a 16)
       const tits = pTarget.titulares || [];
       const sups = pTarget.suplentes || [];
-
       for (let i = 0; i < 11; i++) {
         const filaIdx = 6 + i;
         worksheet.getRow(filaIdx).height = 18;
-
-        // Titulares
-        const cellNumT = worksheet.getCell(`A${filaIdx}`);
-        cellNumT.value = i + 1;
-        cellNumT.font = fontNormal;
-        cellNumT.alignment = alinearCentro;
-        cellNumT.border = borderFino;
-
-        const cellNameT = worksheet.getCell(`B${filaIdx}`);
-        cellNameT.value = tits[i] || "";
-        cellNameT.font = fontNormal;
-        cellNameT.alignment = alinearIzquierda;
-        cellNameT.border = borderFino;
-
-        // Suplentes
-        const cellNumS = worksheet.getCell(`C${filaIdx}`);
-        cellNumS.value = i + 1;
-        cellNumS.font = fontNormal;
-        cellNumS.alignment = alinearCentro;
-        cellNumS.border = borderFino;
-
-        const cellNameS = worksheet.getCell(`D${filaIdx}`);
-        cellNameS.value = sups[i] || "";
-        cellNameS.font = fontNormal;
-        cellNameS.alignment = alinearIzquierda;
-        cellNameS.border = borderFino;
+        worksheet.getCell(`A${filaIdx}`).value = i + 1;
+        worksheet.getCell(`A${filaIdx}`).border = borderFino;
+        worksheet.getCell(`A${filaIdx}`).alignment = alinearCentro;
+        worksheet.getCell(`B${filaIdx}`).value = tits[i] || "";
+        worksheet.getCell(`B${filaIdx}`).border = borderFino;
+        worksheet.getCell(`B${filaIdx}`).alignment = alinearIzquierda;
+        worksheet.getCell(`C${filaIdx}`).value = i + 1;
+        worksheet.getCell(`C${filaIdx}`).border = borderFino;
+        worksheet.getCell(`C${filaIdx}`).alignment = alinearCentro;
+        worksheet.getCell(`D${filaIdx}`).value = sups[i] || "";
+        worksheet.getCell(`D${filaIdx}`).border = borderFino;
+        worksheet.getCell(`D${filaIdx}`).alignment = alinearIzquierda;
       }
-
-      // Recuadro unificado de Observaciones en blanco al costado (E6:H16)
       worksheet.mergeCells("E6:H16");
       worksheet.getCell("E6").border = borderFino;
 
-      // 5. SECCIÓN CLASIFICACIÓN DE OBJETIVOS (Fila 18)
       worksheet.getRow(18).height = 20;
       worksheet.mergeCells("A18:C18");
       worksheet.getCell("A18").value = "OBJETIVOS OFENSIVOS";
       worksheet.getCell("A18").font = fontNegrita;
-      worksheet.getCell("A18").alignment = alinearIzquierda;
-
       worksheet.mergeCells("D18:F18");
       worksheet.getCell("D18").value = "OBJETIVOS DEFENSIVOS";
       worksheet.getCell("D18").font = fontNegrita;
-      worksheet.getCell("D18").alignment = alinearIzquierda;
 
-      // 6. ENCABEZADOS DE LA TABLA DE CUARTOS (Fila 21)
       worksheet.getRow(21).height = 22;
       const headersTabla = [
         { c: "A21", v: "Cuarto" },
-        { c: "B21", v: "Ingresos área rival" },
+        { c: "B21", v: "Ingresos área" },
         { c: "C21", v: "Tiros" },
         { c: "D21", v: "Pérdidas" },
-        { c: "E21", v: "Cortos a favor" },
-        { c: "F21", v: "Cortos en contra" },
+        { c: "E21", v: "Cortos Favor" },
+        { c: "F21", v: "Cortos Contra" },
         { c: "G21", v: "Goles" },
       ];
-
       headersTabla.forEach((h) => {
-        const cell = worksheet.getCell(h.c);
-        cell.value = h.v;
-        cell.font = fontNegrita;
-        cell.alignment = alinearCentro;
-        cell.border = borderFino;
+        worksheet.getCell(h.c).value = h.v;
+        worksheet.getCell(h.c).font = fontNegrita;
+        worksheet.getCell(h.c).alignment = alinearCentro;
+        worksheet.getCell(h.c).border = borderFino;
       });
 
-      // Mapeo interno para emparejar tus columnas exactas de la imagen con la base de datos
       const mapeoMetricas = [
         { col: "B", id: "ingresos_area_favor" },
         { col: "C", id: "tiros_favor" },
@@ -771,52 +739,23 @@ export default function App() {
         { col: "F", id: "cortos_contra" },
         { col: "G", id: "goles_favor" },
       ];
-
       const cuartosKeys = ["1Q", "2Q", "3Q", "4Q"];
       const cuartosEtiquetas = ["1°", "2°", "3°", "4°"];
 
-      // 7. INYECCIÓN DE LOS DATOS DE LOS CUARTOS (Filas 22 a 25)
       cuartosKeys.forEach((qKey, idx) => {
         const filaW = 22 + idx;
         worksheet.getRow(filaW).height = 20;
-
-        // Columna Cuarto
-        const cellQ = worksheet.getCell(`A${filaW}`);
-        cellQ.value = cuartosEtiquetas[idx];
-        cellQ.font = fontNormal;
-        cellQ.alignment = alinearCentro;
-        cellQ.border = borderFino;
-
-        // Columnas Estadísticas
+        worksheet.getCell(`A${filaW}`).value = cuartosEtiquetas[idx];
+        worksheet.getCell(`A${filaW}`).border = borderFino;
+        worksheet.getCell(`A${filaW}`).alignment = alinearCentro;
         mapeoMetricas.forEach((m) => {
-          const cellE = worksheet.getCell(`${m.col}${filaW}`);
-          cellE.value = pTarget.estadisticas?.[qKey]?.[m.id] || 0;
-          cellE.font = fontNormal;
-          cellE.alignment = alinearCentro;
-          cellE.border = borderFino;
+          worksheet.getCell(`${m.col}${filaW}`).value =
+            pTarget.estadisticas?.[qKey]?.[m.id] || 0;
+          worksheet.getCell(`${m.col}${filaW}`).border = borderFino;
+          worksheet.getCell(`${m.col}${filaW}`).alignment = alinearCentro;
         });
       });
 
-      // 8. FILA DE TOTALES ACUMULADOS (Fila 26)
-      const filaTotales = 26;
-      worksheet.getRow(filaTotales).height = 22;
-
-      const cellLabelT = worksheet.getCell(`A${filaTotales}`);
-      cellLabelT.value = "TOTAL";
-      cellLabelT.font = fontNegrita;
-      cellLabelT.alignment = alinearCentro;
-      cellLabelT.border = borderFino;
-
-      // Fórmulas automáticas de Excel para las columnas de la B a la G
-      ["B", "C", "D", "E", "F", "G"].forEach((letra) => {
-        const cellT = worksheet.getCell(`${letra}${filaTotales}`);
-        cellT.value = { formula: `=SUM(${letra}22:${letra}25)` };
-        cellT.font = fontNegrita;
-        cellT.alignment = alinearCentro;
-        cellT.border = borderFino;
-      });
-
-      // Generación y descarga del archivo
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -824,16 +763,33 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Planilla_Hockey_${pTarget.fecha}_vs_${pTarget.rival}.xlsx`;
+      link.download = `Planilla_${pTarget.fecha}_vs_${pTarget.rival}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } catch (err) {
-      console.error("Error al generar la planilla Excel estructurada:", err);
+      console.error(err);
     }
   };
 
-  // --- RESGUARDO SI NO HAY SESIÓN INICIADA ---
+  if (cargandoAuth) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <h2>🔄 Cargando Mesa de Control...</h2>
+      </div>
+    );
+  }
+
+  // --- FORMULARIO DE LOGIN ---
   if (!usuario) {
     return (
       <div
@@ -851,45 +807,90 @@ export default function App() {
         <div
           style={{
             backgroundColor: "#1f2937",
-            padding: "24px",
+            padding: "28px",
             borderRadius: "12px",
             border: "1px solid #374151",
             width: "100%",
             maxWidth: "400px",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
           }}
         >
-          <h2 style={{ textAlign: "center", color: "#3b82f6", marginTop: 0 }}>
-            🏑 MESA DE CONTROL
-          </h2>
-          <form
-            onSubmit={manejarAuth}
-            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          <h2
+            style={{
+              textAlign: "center",
+              color: "#60a5fa",
+              marginTop: 0,
+              marginBottom: "4px",
+            }}
           >
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email del Profe"
-              style={estiloInput as any}
-              required
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Contraseña"
-              style={estiloInput as any}
-              required
-            />
+            🏑 CLUB TALLERES
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#9ca3af",
+              fontSize: "13px",
+              marginTop: 0,
+              marginBottom: "20px",
+            }}
+          >
+            Análisis Colaborativo de Partidos
+          </p>
+
+          <form
+            onSubmit={manejarLoginClub}
+            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Usuario / Entrenador:
+              </label>
+              <input
+                type="text"
+                value={identificadorProfe}
+                onChange={(e) => setIdentificadorProfe(e.target.value)}
+                placeholder="Ej: baltha o coordinador"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Contraseña del Club:
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="******"
+                style={estiloInput as any}
+                required
+              />
+            </div>
             {errorAuth && (
               <div
                 style={{
                   color: "#ef4444",
                   fontSize: "13px",
                   textAlign: "center",
+                  fontWeight: "bold",
                 }}
               >
-                {errorAuth}
+                ⚠️ {errorAuth}
               </div>
             )}
             <button
@@ -899,31 +900,16 @@ export default function App() {
                 backgroundColor: "#2563eb",
                 color: "white",
                 border: "none",
-                borderRadius: "6px",
+                borderRadius: "8px",
                 fontWeight: "bold",
+                fontSize: "15px",
                 cursor: "pointer",
+                marginTop: "6px",
               }}
             >
-              {esRegistro ? "Registrar Cuenta" : "Iniciar Sesión"}
+              🔑 Ingresar a la Mesa
             </button>
           </form>
-          <button
-            onClick={() => setEsRegistro(!esRegistro)}
-            style={{
-              width: "100%",
-              background: "none",
-              border: "none",
-              color: "#9ca3af",
-              fontSize: "12px",
-              marginTop: "12px",
-              cursor: "pointer",
-              textDecoration: "underline",
-            }}
-          >
-            {esRegistro
-              ? "¿Ya tenés cuenta? Logueate"
-              : "¿No tenés cuenta? Registrate"}
-          </button>
         </div>
       </div>
     );
@@ -954,7 +940,11 @@ export default function App() {
         }}
       >
         <span style={{ fontSize: "13px", color: "#9ca3af" }}>
-          🏃‍♂️ Técnico: <b>{usuario?.email}</b>
+          🏃‍♂️ Usuario:{" "}
+          <b style={{ color: "#60a5fa" }}>
+            {usuario?.email?.split("@")[0].toUpperCase()}
+          </b>{" "}
+          ({perfilUsuario?.rol?.toUpperCase()})
         </span>
         <button
           onClick={cerrarSesion}
@@ -1151,7 +1141,7 @@ export default function App() {
                       <tbody>
                         <tr style={{ backgroundColor: "#1e3a8a" }}>
                           <td style={{ padding: "6px", fontWeight: "bold" }}>
-                            Goles Favor (Club)
+                            Goles Favor
                           </td>
                           <td style={{ textAlign: "center" }}>
                             {calcularTotal(
@@ -1162,7 +1152,7 @@ export default function App() {
                         </tr>
                         <tr style={{ backgroundColor: "#7f1d1d" }}>
                           <td style={{ padding: "6px", fontWeight: "bold" }}>
-                            Goles Contra (Rival)
+                            Goles Contra
                           </td>
                           <td style={{ textAlign: "center" }}>
                             {calcularTotal(
@@ -1209,7 +1199,7 @@ export default function App() {
             </div>
           )}
 
-          {/* PANEL ADMIN */}
+          {/* MODO PANEL ADMIN */}
           {modoAdmin && (
             <div
               style={{
@@ -1264,7 +1254,7 @@ export default function App() {
                         marginBottom: "8px",
                       }}
                     >
-                      📋 Permisos de Profes
+                      📋 Habilitar Permisos Cruzados a Profes
                     </h4>
                     <div
                       style={{
@@ -1293,7 +1283,8 @@ export default function App() {
                                 marginBottom: "4px",
                               }}
                             >
-                              📧 {profe.email}
+                              👤 Entrenador:{" "}
+                              {profe.email?.split("@")[0].toUpperCase()}
                             </div>
                             <div
                               style={{
@@ -1343,7 +1334,7 @@ export default function App() {
                 </>
               )}
 
-              {/* Modificar Plantel de Jugadoras */}
+              {/* Plantel */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1359,7 +1350,7 @@ export default function App() {
                       marginBottom: "8px",
                     }}
                   >
-                    👥 Cargar / Modificar Jugadoras
+                    👥 Modificar Plantel de Jugadoras
                   </h4>
                   <form
                     onSubmit={agregarJugadorasAlEquipo}
@@ -1373,7 +1364,7 @@ export default function App() {
                       type="text"
                       value={nuevasJugadorasTexto}
                       onChange={(e) => setNuevasJugadorasTexto(e.target.value)}
-                      placeholder="Nombres separados por coma (Ej: Juana, Meli)"
+                      placeholder="Nombres separados por coma"
                       style={estiloInput as any}
                     />
                     <button
@@ -1402,132 +1393,110 @@ export default function App() {
                       borderRadius: "6px",
                     }}
                   >
-                    {jugadorasDelEquipo.length === 0 ? (
-                      <span style={{ color: "#6b7280", fontSize: "13px" }}>
-                        Sin jugadoras cargadas todavía.
-                      </span>
-                    ) : (
-                      jugadorasDelEquipo.map((j) => (
-                        <div
-                          key={j}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            backgroundColor: "#374151",
-                            padding: "6px 10px",
-                            borderRadius: "6px",
-                          }}
-                        >
-                          {jugadoraEditando === j ? (
-                            <div
+                    {jugadorasDelEquipo.map((j) => (
+                      <div
+                        key={j}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          backgroundColor: "#374151",
+                          padding: "6px 10px",
+                          borderRadius: "6px",
+                        }}
+                      >
+                        {jugadoraEditando === j ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "6px",
+                              width: "100%",
+                            }}
+                          >
+                            <input
+                              type="text"
+                              value={nuevoNombreEditado}
+                              onChange={(e) =>
+                                setNuevoNombreEditado(e.target.value)
+                              }
+                              style={
+                                {
+                                  ...estiloInput,
+                                  padding: "4px 8px",
+                                  fontSize: "13px",
+                                } as any
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => modificarNombreJugadora(j)}
                               style={{
-                                display: "flex",
-                                gap: "6px",
-                                width: "100%",
+                                backgroundColor: "#10b981",
+                                border: "none",
+                                borderRadius: "4px",
+                                color: "white",
+                                padding: "4px 10px",
+                                cursor: "pointer",
                               }}
                             >
-                              <input
-                                type="text"
-                                value={nuevoNombreEditado}
-                                onChange={(e) =>
-                                  setNuevoNombreEditado(e.target.value)
-                                }
-                                style={
-                                  {
-                                    ...estiloInput,
-                                    padding: "4px 8px",
-                                    fontSize: "13px",
-                                  } as any
-                                }
-                              />
+                              💾
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setJugadoraEditando(null)}
+                              style={{
+                                backgroundColor: "#6b7280",
+                                border: "none",
+                                borderRadius: "4px",
+                                color: "white",
+                                padding: "4px 10px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: "13px" }}>{j}</span>
+                            <div style={{ display: "flex", gap: "10px" }}>
                               <button
                                 type="button"
-                                onClick={() => modificarNombreJugadora(j)}
+                                onClick={() => {
+                                  setJugadoraEditando(j);
+                                  setNuevoNombreEditado(j);
+                                }}
                                 style={{
-                                  backgroundColor: "#10b981",
+                                  background: "none",
                                   border: "none",
-                                  borderRadius: "4px",
-                                  color: "white",
-                                  padding: "4px 10px",
+                                  color: "#60a5fa",
                                   cursor: "pointer",
-                                  fontWeight: "bold",
                                 }}
                               >
-                                💾
+                                ✏️
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setJugadoraEditando(null)}
+                                onClick={() => eliminarJugadoraIndividual(j)}
                                 style={{
-                                  backgroundColor: "#6b7280",
+                                  background: "none",
                                   border: "none",
-                                  borderRadius: "4px",
-                                  color: "white",
-                                  padding: "4px 10px",
+                                  color: "#f87171",
                                   cursor: "pointer",
                                 }}
                               >
-                                ❌
+                                ×
                               </button>
                             </div>
-                          ) : (
-                            <>
-                              <span
-                                style={{ fontSize: "13px", fontWeight: "bold" }}
-                              >
-                                {j}
-                              </span>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  gap: "10px",
-                                  alignItems: "center",
-                                }}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setJugadoraEditando(j);
-                                    setNuevoNombreEditado(j);
-                                  }}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: "#60a5fa",
-                                    cursor: "pointer",
-                                    fontSize: "13px",
-                                    padding: 0,
-                                  }}
-                                >
-                                  ✏️
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => eliminarJugadoraIndividual(j)}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: "#f87171",
-                                    cursor: "pointer",
-                                    fontWeight: "bold",
-                                    fontSize: "15px",
-                                    padding: 0,
-                                  }}
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ))
-                    )}
+                          </>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Configurar Botones */}
+              {/* Botonera */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1557,7 +1526,7 @@ export default function App() {
                       type="text"
                       value={nuevoBtnNombre}
                       onChange={(e) => setNuevoBtnNombre(e.target.value)}
-                      placeholder="Nueva Métrica"
+                      placeholder="Métrica"
                       style={estiloInput as any}
                     />
                     <select
@@ -1605,9 +1574,7 @@ export default function App() {
                           borderLeft: `4px solid ${btn.color}`,
                         }}
                       >
-                        <span style={{ fontSize: "13px" }}>
-                          {btn.nombre} {btn.esGol && "⭐"}
-                        </span>
+                        <span style={{ fontSize: "13px" }}>{btn.nombre}</span>
                         <div style={{ display: "flex", gap: "3px" }}>
                           <button
                             type="button"
@@ -1641,7 +1608,7 @@ export default function App() {
             </div>
           )}
 
-          {/* NUEVO PARTIDO */}
+          {/* PARTIDO NUEVO */}
           <div
             style={{
               backgroundColor: "#1f2937",
@@ -1673,16 +1640,13 @@ export default function App() {
                     fontWeight: "bold",
                   }}
                 >
-                  Categoría a Dirigir:
+                  Categoría Abierta:
                 </label>
                 <select
                   value={equipoSeleccionado}
                   onChange={(e) => manejarCambioEquipo(e.target.value)}
                   style={estiloInput as any}
                 >
-                  {listaEquipos.length === 0 && (
-                    <option>No tenés categorías autorizadas.</option>
-                  )}
                   {listaEquipos.map((eq) => (
                     <option key={eq.id} value={eq.id}>
                       {eq.nombre}
@@ -1704,7 +1668,7 @@ export default function App() {
                       type="text"
                       value={rival}
                       onChange={(e) => setRival(e.target.value)}
-                      placeholder="Nombre del Rival"
+                      placeholder="Rival"
                       style={estiloInput as any}
                       required
                     />
@@ -1712,7 +1676,7 @@ export default function App() {
                       type="text"
                       value={cancha}
                       onChange={(e) => setCancha(e.target.value)}
-                      placeholder="Cancha (Ej: Agua)"
+                      placeholder="Cancha"
                       style={estiloInput as any}
                     />
                   </div>
@@ -1724,7 +1688,6 @@ export default function App() {
                       color: "#9ca3af",
                       marginBottom: "4px",
                       fontSize: "14px",
-                      marginTop: "6px",
                     }}
                   >
                     📋 Convocadas ({titulares.length} Tit. / {suplentes.length}{" "}
@@ -1753,8 +1716,7 @@ export default function App() {
                           padding: "12px",
                         }}
                       >
-                        No hay jugadoras cargadas en este plantel. Cargalas
-                        arriba en Plantel / Botonera.
+                        Plantel vacío. Carga jugadoras arriba.
                       </div>
                     ) : (
                       jugadorasDelEquipo.map((j) => {
@@ -1772,11 +1734,7 @@ export default function App() {
                               borderRadius: "6px",
                             }}
                           >
-                            <span
-                              style={{ fontSize: "13px", fontWeight: "500" }}
-                            >
-                              {j}
-                            </span>
+                            <span style={{ fontSize: "13px" }}>{j}</span>
                             <div style={{ display: "flex", gap: "4px" }}>
                               <button
                                 type="button"
@@ -1794,7 +1752,7 @@ export default function App() {
                                   fontSize: "11px",
                                 }}
                               >
-                                {esT ? "✓ Titular" : "Titular"}
+                                {esT ? "✓ Tit" : "Tit"}
                               </button>
                               <button
                                 type="button"
@@ -1823,7 +1781,6 @@ export default function App() {
                   <button
                     type="submit"
                     style={{
-                      marginTop: "6px",
                       padding: "14px",
                       borderRadius: "8px",
                       border: "none",
@@ -1861,6 +1818,7 @@ export default function App() {
                 color: "white",
                 border: "none",
                 fontWeight: "bold",
+                cursor: "pointer",
               }}
             >
               🚩 Salir de Mesa
@@ -1874,6 +1832,7 @@ export default function App() {
                   backgroundColor: vista === "telefono" ? "#6366f1" : "#374151",
                   color: "white",
                   border: "none",
+                  cursor: "pointer",
                 }}
               >
                 📲 Cel
@@ -1887,6 +1846,7 @@ export default function App() {
                     vista === "computadora" ? "#6366f1" : "#374151",
                   color: "white",
                   border: "none",
+                  cursor: "pointer",
                 }}
               >
                 💻 PC
@@ -1894,7 +1854,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* VISTA MÓVIL REPARADA */}
+          {/* VISTA MÓVIL */}
           {vista === "telefono" && (
             <div
               style={{
@@ -2055,7 +2015,6 @@ export default function App() {
                 ))}
               </div>
 
-              {/* RENDERIZADO INLINE DE LOS BOTONES DINÁMICOS PARA EVITAR ERROR DE REFERENCIA */}
               <div
                 style={{
                   display: "grid",
@@ -2080,6 +2039,7 @@ export default function App() {
                           cursor: "pointer",
                           backgroundColor: btn.color,
                           boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+                          gridColumn: "1 / -1",
                         }}
                       >
                         {btn.nombre}
@@ -2134,7 +2094,7 @@ export default function App() {
                           borderTop: "1px solid #4b5563",
                         }}
                       >
-                        Meno s (-)
+                        Menos (-)
                       </button>
                     </div>
                   );
@@ -2269,14 +2229,14 @@ export default function App() {
               >
                 <thead>
                   <tr>
-                    <th style={estiloCeldaTh as any}>Métrica</th>
-                    <th style={estiloCeldaTh as any}>1Q</th>
-                    <th style={estiloCeldaTh as any}>2Q</th>
-                    <th style={estiloCeldaTh as any}>3Q</th>
-                    <th style={estiloCeldaTh as any}>4Q</th>
+                    <th style={estiloCellTh as any}>Métrica</th>
+                    <th style={estiloCellTh as any}>1Q</th>
+                    <th style={estiloCellTh as any}>2Q</th>
+                    <th style={estiloCellTh as any}>3Q</th>
+                    <th style={estiloCellTh as any}>4Q</th>
                     <th
                       style={
-                        { ...estiloCeldaTh, backgroundColor: "#2563eb" } as any
+                        { ...estiloCellTh, backgroundColor: "#2563eb" } as any
                       }
                     >
                       TOTAL
@@ -2288,13 +2248,13 @@ export default function App() {
                     <td
                       style={
                         {
-                          ...estiloCeldaTd,
+                          ...estiloCellTd,
                           textAlign: "left",
                           fontWeight: "bold",
                         } as any
                       }
                     >
-                      ⚽ Goles a Favor (CAT)
+                      ⚽ Goles a Favor
                     </td>
                     <td>{estadisticas["1Q"]?.["goles_favor"] || 0}</td>
                     <td>{estadisticas["2Q"]?.["goles_favor"] || 0}</td>
@@ -2310,13 +2270,13 @@ export default function App() {
                     <td
                       style={
                         {
-                          ...estiloCeldaTd,
+                          ...estiloCellTd,
                           textAlign: "left",
                           fontWeight: "bold",
                         } as any
                       }
                     >
-                      ⚽ Goles en Contra (Rival)
+                      ⚽ Goles en Contra
                     </td>
                     <td>{estadisticas["1Q"]?.["goles_contra"] || 0}</td>
                     <td>{estadisticas["2Q"]?.["goles_contra"] || 0}</td>
@@ -2335,7 +2295,7 @@ export default function App() {
                         <td
                           style={
                             {
-                              ...estiloCeldaTd,
+                              ...estiloCellTd,
                               textAlign: "left",
                               fontWeight: "bold",
                               borderLeft: `5px solid ${btn.color}`,
@@ -2380,7 +2340,7 @@ const estiloInput = {
   boxSizing: "border-box" as "border-box",
 };
 
-const estiloCeldaTh = {
+const estiloCellTh = {
   padding: "12px",
   border: "1px solid #374151",
   backgroundColor: "#1f2937",
@@ -2389,7 +2349,7 @@ const estiloCeldaTh = {
   fontSize: "13px",
 };
 
-const estiloCeldaTd = {
+const estiloCellTd = {
   padding: "12px",
   border: "1px solid #374151",
   textAlign: "center" as "center",
