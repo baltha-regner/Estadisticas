@@ -84,6 +84,13 @@ const BOTONES_POR_DEFECTO = [
   },
 ];
 
+const ESTRUCTURA_INICIAL_ESTADISTICAS = {
+  "1Q": {},
+  "2Q": {},
+  "3Q": {},
+  "4Q": {},
+};
+
 const formatearTiempo = (totalSegundos: number) => {
   const mins = Math.floor(totalSegundos / 60);
   const secs = totalSegundos % 60;
@@ -116,7 +123,6 @@ export default function App() {
   const [jugadoraEditando, setJugadoraEditando] = useState<string | null>(null);
   const [nuevoNombreEditado, setNuevoNombreEditado] = useState<string>("");
 
-  // Estados para la edición e individualización de botones
   const [botonEditandoNombre, setBotonEditandoNombre] = useState<string | null>(
     null
   );
@@ -406,25 +412,17 @@ export default function App() {
   ) => {
     try {
       const profeRef = doc(db, "usuarios", idProfe);
-
-      if (tienePermiso) {
-        // 🔴 QUITAR ACCESO: Removemos el ID de la categoría de ambos campos por seguridad
-        await updateDoc(profeRef, {
-          categoriasPermitidas: arrayRemove(idCat),
-          categoriesPermitidas: arrayRemove(idCat), // Limpieza extra de typos viejos
-        });
-      } else {
-        // 🟢 HABILITAR ACCESO: Añadimos el ID de la categoría
-        await updateDoc(profeRef, {
-          categoriasPermitidas: arrayUnion(idCat),
-          categoriesPermitidas: arrayUnion(idCat),
-        });
-      }
-
-      // Forzamos la actualización del estado local para que impacte la interfaz inmediatamente
+      await updateDoc(profeRef, {
+        categoriasPermitidas: tienePermiso
+          ? arrayRemove(idCat)
+          : arrayUnion(idCat),
+        categoriesPermitidas: tienePermiso
+          ? arrayRemove(idCat)
+          : arrayUnion(idCat),
+      });
       await obtenerListaProfesDeFirestore();
     } catch (err) {
-      console.error("Error modificando permisos del entrenador:", err);
+      console.error(err);
     }
   };
 
@@ -517,49 +515,58 @@ export default function App() {
     guardarBotonesEnFirestore(nuevaLista.map((b, i) => ({ ...b, orden: i })));
   };
 
-  const manejarLoginClub = async (e: React.FormEvent) => {
+  // --- REGISTRO E INICIO DE PARTIDOS EXPLICITO ---
+  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorAuth("");
-    const userClean = identificadorProfe.trim().toLowerCase();
-    if (!userClean || !password.trim())
-      return setErrorAuth("Completa los datos de acceso");
-    const emailSimulado = `${userClean}@talleres.com`;
-    try {
-      await signInWithEmailAndPassword(auth, emailSimulado, password);
-    } catch (error: any) {
-      if (
-        error.code === "auth/user-not-found" ||
-        error.code === "auth/invalid-credential"
-      ) {
-        try {
-          const credencial = await createUserWithEmailAndPassword(
-            auth,
-            emailSimulado,
-            password
-          );
-          let rolAsignado = "entrenador";
-          if (userClean === "admin" || userClean === "baltha")
-            rolAsignado = "admin";
-          else if (userClean === "coordinador") rolAsignado = "coordinador";
+    if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
+    const equipoActual = listaEquipos.find(
+      (eq) => eq.id === equipoSeleccionado
+    );
+    const nuevoId = `${fecha}_${equipoSeleccionado}_vs_${rival
+      .toLowerCase()
+      .replace(/ /g, "_")}`;
+    setIdPartido(nuevoId);
 
-          const nuevoPerfil = {
-            email: emailSimulado,
-            identificador: userClean,
-            rol: rolAsignado,
-            categoriasPermitidas:
-              rolAsignado === "admin" || rolAsignado === "coordinador"
-                ? []
-                : ["sub14"],
-          };
-          await setDoc(doc(db, "usuarios", credencial.user.uid), nuevoPerfil);
-          setPerfilUsuario(nuevoPerfil);
-        } catch (crearErr) {
-          setErrorAuth("Error de red o contraseña inválida.");
-        }
-      } else {
-        setErrorAuth("Usuario o contraseña incorrectos.");
-      }
-    }
+    const estructuraInyectada: any = { "1Q": {}, "2Q": {}, "3Q": {}, "4Q": {} };
+    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
+      botonesDinamicos.forEach((b) => {
+        estructuraInyectada[q][b.id] = 0;
+        (b.subetiquetas || []).forEach((s: string) => {
+          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
+          estructuraInyectada[q][subId] = 0;
+        });
+      });
+      estructuraInyectada[q]["goles_favor"] = 0;
+      estructuraInyectada[q]["goles_contra"] = 0;
+    });
+
+    await setDoc(doc(db, "partidos_club", nuevoId), {
+      id_partido: nuevoId,
+      id_categoria: equipoSeleccionado,
+      club_local: "Talleres de Paraná",
+      categoria: equipoActual ? equipoActual.nombre : "",
+      rival,
+      cancha,
+      fecha,
+      titulares,
+      suplentes,
+      estadisticas: estructuraInyectada,
+      configuracion_botones: botonesDinamicos,
+    });
+    setEstadisticas(estructuraInyectada);
+    setPartidoIniciado(true);
+  };
+
+  const reingresarAPartido = (partido: any) => {
+    setIdPartido(partido.id_partido || partido.id);
+    setRival(partido.rival || "");
+    setCancha(partido.cancha || "");
+    setFecha(partido.fecha || "");
+    setTitulares(partido.titulares || []);
+    setSuplentes(partido.suplentes || []);
+    setEquipoSeleccionado(partido.id_categoria);
+    setEstadisticas(partido.estadisticas || ESTRUCTURA_INICIAL_ESTADISTICAS);
+    setPartidoIniciado(true);
   };
 
   const crearNuevoEquipo = async (e: React.FormEvent) => {
@@ -635,264 +642,217 @@ export default function App() {
     }
   };
 
-  const asignarRol = (
-    nombre: string,
-    rol: "titular" | "suplente" | "ninguno"
-  ) => {
-    if (rol === "titular") {
-      setSuplentes((prev) => prev.filter((j) => j !== nombre));
-      if (!titulares.includes(nombre)) setTitulares((p) => [...p, nombre]);
-    } else if (rol === "suplente") {
-      setTitulares((prev) => prev.filter((j) => j !== nombre));
-      if (!suplentes.includes(nombre)) setSuplentes((p) => [...p, nombre]);
-    } else {
-      setTitulares((prev) => prev.filter((j) => j !== nombre));
-      setSuplentes((prev) => prev.filter((j) => j !== nombre));
-    }
-  };
-
-  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
-    const equipoActual = listaEquipos.find(
-      (eq) => eq.id === equipoSeleccionado
-    );
-    const nuevoId = `${fecha}_${equipoSeleccionado}_vs_${rival
-      .toLowerCase()
-      .replace(/ /g, "_")}`;
-    setIdPartido(nuevoId);
-
-    const estructuraInicialEstadisticas: any = {
-      "1Q": {},
-      "2Q": {},
-      "3Q": {},
-      "4Q": {},
-    };
-    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
-      botonesDinamicos.forEach((b) => {
-        estructuraInicialEstadisticas[q][b.id] = 0;
-        (b.subetiquetas || []).forEach((s: string) => {
-          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
-          estructuraInicialEstadisticas[q][subId] = 0;
-        });
-      });
-      estructuraInicialEstadisticas[q]["goles_favor"] = 0;
-      estructuraInicialEstadisticas[q]["goles_contra"] = 0;
-    });
-
-    await setDoc(doc(db, "partidos_club", nuevoId), {
-      id_partido: nuevoId,
-      id_categoria: equipoSeleccionado,
-      club_local: "Talleres de Paraná",
-      categoria: equipoActual ? equipoActual.nombre : "",
+  const exportarAExcel = async (partidoEspecifico: any = null) => {
+    const pTarget = partidoEspecifico || {
       rival,
-      cancha,
       fecha,
+      cancha,
       titulares,
       suplentes,
-      estadisticas: estructuraInicialEstadisticas,
+      estadisticas,
       configuracion_botones: botonesDinamicos,
-    });
-    setPartidoIniciado(true);
-  };
-
-  const reingresarAPartido = (partido: any) => {
-    setIdPartido(partido.id_partido || partido.id);
-    setRival(partido.rival || "");
-    setCancha(partido.cancha || "");
-    setFecha(partido.fecha || "");
-    setTitulares(partido.titulares || []);
-    setSuplentes(partido.suplentes || []);
-    setEquipoSeleccionado(partido.id_categoria);
-    setPartidoIniciado(true);
-  };
-
-  const obtenerEstadisticasAcumuladas = () => {
-    const partidosCategoria = listaPartidosViejos.filter(
-      (p) => p.id_categoria === equipoSeleccionado
-    );
-    const totalPartidos = partidosCategoria.length;
-
-    const iniciales: any = {
-      partidosTotales: totalPartidos,
-      totales: {},
-      promedios: {},
-      porCuarto: { "1Q": 0, "2Q": 0, "3Q": 0, "4Q": 0 },
     };
-    if (totalPartidos === 0) return iniciales;
+    const btnsFicha = pTarget.configuracion_botones || BOTONES_POR_DEFECTO;
+    try {
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Planilla de Juego");
+      worksheet.columns = [
+        { width: 5 },
+        { width: 22 },
+        { width: 5 },
+        { width: 22 },
+        { width: 18 },
+        { width: 15 },
+        { width: 15 },
+        { width: 15 },
+      ];
 
-    partidosCategoria.forEach((partido) => {
-      ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
-        const statsQ = partido.estadisticas?.[q] || {};
-        Object.keys(statsQ).forEach((key) => {
-          iniciales.totales[key] =
-            (iniciales.totales[key] || 0) + (statsQ[key] || 0);
-          if (
-            key.includes("favor") ||
-            key === "ingresos_area_favor" ||
-            key === "tiros_favor"
-          ) {
-            iniciales.porCuarto[q] =
-              (iniciales.porCuarto[q] || 0) + (statsQ[key] || 0);
-          }
-        });
-        iniciales.totales["goles_favor"] =
-          (iniciales.totales["goles_favor"] || 0) +
-          (statsQ["goles_favor"] || 0);
-        iniciales.totales["goles_contra"] =
-          (iniciales.totales["goles_contra"] || 0) +
-          (statsQ["goles_contra"] || 0);
+      const fontNegrita = { name: "Calibri", bold: true, size: 11 };
+      const fontNormal = { name: "Calibri", size: 11 };
+      const borderFino = {
+        top: { style: "thin" as any },
+        left: { style: "thin" as any },
+        bottom: { style: "thin" as any },
+        right: { style: "thin" as any },
+      };
+      const alinearCentro = {
+        horizontal: "center" as any,
+        vertical: "middle" as any,
+      };
+      const alinearIzquierda = {
+        horizontal: "left" as any,
+        vertical: "middle" as any,
+      };
+
+      worksheet.mergeCells("A1:H1");
+      worksheet.getCell("A1").value =
+        "PLANILLA DE ESTADÍSTICAS – CLUB TALLERES";
+      worksheet.getCell("A1").font = { name: "Calibri", bold: true, size: 14 };
+      worksheet.getCell("A1").alignment = alinearCentro;
+      worksheet.getRow(1).height = 30;
+
+      worksheet.getRow(3).height = 22;
+      worksheet.getCell("A3").value = "Club:";
+      worksheet.getCell("B3").value = "Talleres de Paraná";
+      worksheet.getCell("C3").value = "Rival:";
+      worksheet.getCell("D3").value = pTarget.rival || "";
+      worksheet.getCell("E3").value = "Fecha:";
+      worksheet.getCell("F3").value = pTarget.fecha || "";
+      worksheet.getCell("G3").value = "Cancha:";
+      worksheet.getCell("H3").value = pTarget.cancha || "";
+      ["A3", "B3", "C3", "D3", "E3", "F3", "G3", "H3"].forEach((c) => {
+        worksheet.getCell(c).font = fontNegrita;
+        worksheet.getCell(c).border = borderFino;
+        worksheet.getCell(c).alignment = alinearCentro;
       });
-    });
 
-    Object.keys(iniciales.totales).forEach((key) => {
-      iniciales.promedios[key] = Number(
-        (iniciales.totales[key] / totalPartidos).toFixed(1)
-      );
-    });
+      worksheet.getRow(5).height = 20;
+      worksheet.mergeCells("A5:B5");
+      worksheet.getCell("A5").value = "Titulares";
+      worksheet.mergeCells("C5:D5");
+      worksheet.getCell("C5").value = "Suplentes";
+      worksheet.mergeCells("E5:H5");
+      worksheet.getCell("E5").value = "Observaciones";
 
-    return iniciales;
+      const tits = pTarget.titulares || [];
+      const sups = pTarget.suplentes || [];
+      for (let i = 0; i < 11; i++) {
+        const filaIdx = 6 + i;
+        worksheet.getRow(filaIdx).height = 18;
+        worksheet.getCell(`A${filaIdx}`).value = i + 1;
+        worksheet.getCell(`A${filaIdx}`).border = borderFino;
+        worksheet.getCell(`A${filaIdx}`).alignment = alinearCentro;
+        worksheet.getCell(`B${filaIdx}`).value = tits[i] || "";
+        worksheet.getCell(`B${filaIdx}`).border = borderFino;
+        worksheet.getCell(`B${filaIdx}`).alignment = alinearIzquierda;
+        worksheet.getCell(`C${filaIdx}`).value = i + 1;
+        worksheet.getCell(`C${filaIdx}`).border = borderFino;
+        worksheet.getCell(`C${filaIdx}`).alignment = alinearCentro;
+        worksheet.getCell(`D${filaIdx}`).value = sups[i] || "";
+        worksheet.getCell(`D${filaIdx}`).border = borderFino;
+        worksheet.getCell(`D${filaIdx}`).alignment = alinearIzquierda;
+      }
+      worksheet.mergeCells("E6:H16");
+      worksheet.getCell("E6").border = borderFino;
+
+      let filaActualTabla = 21;
+      worksheet.getRow(filaActualTabla).height = 22;
+      const headers = [
+        "Métrica / Descriptor",
+        "1° Cuarto",
+        "2° Cuarto",
+        "3° Cuarto",
+        "4° Cuarto",
+        "TOTAL",
+        "",
+        "",
+      ];
+      headers.forEach((h, idx) => {
+        if (idx < 6) {
+          const c = worksheet.getCell(
+            `${String.fromCharCode(65 + idx)}${filaActualTabla}`
+          );
+          c.value = h;
+          c.font = fontNegrita;
+          c.alignment = alinearCentro;
+          c.border = borderFino;
+        }
+      });
+
+      const inyectarFilaFija = (label: string, idCampo: string) => {
+        filaActualTabla++;
+        worksheet.getRow(filaActualTabla).height = 20;
+        const cL = worksheet.getCell(`A${filaActualTabla}`);
+        cL.value = label;
+        cL.font = fontNegrita;
+        cL.border = borderFino;
+        ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
+          const c = worksheet.getCell(
+            `${String.fromCharCode(66 + i)}${filaActualTabla}`
+          );
+          c.value = pTarget.estadisticas?.[q]?.[idCampo] || 0;
+          c.border = borderFino;
+          c.alignment = alinearCentro;
+        });
+        const cT = worksheet.getCell(`F${filaActualTabla}`);
+        cT.value = calcularTotalMétrica(idCampo, pTarget.estadisticas);
+        cT.font = fontNegrita;
+        cT.border = borderFino;
+        cT.alignment = alinearCentro;
+      };
+
+      inyectarFilaFija("⚽ Goles a Favor (CAT)", "goles_favor");
+      inyectarFilaFija("⚽ Goles en Contra (Rival)", "goles_contra");
+
+      btnsFicha
+        .filter((b: any) => !b.esGol)
+        .forEach((btn: any) => {
+          filaActualTabla++;
+          worksheet.getRow(filaActualTabla).height = 20;
+          const cL = worksheet.getCell(`A${filaActualTabla}`);
+          cL.value = btn.nombre.toUpperCase();
+          cL.font = fontNegrita;
+          cL.border = borderFino;
+          ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
+            const c = worksheet.getCell(
+              `${String.fromCharCode(66 + i)}${filaActualTabla}`
+            );
+            c.value = pTarget.estadisticas?.[q]?.[btn.id] || 0;
+            c.border = borderFino;
+            c.alignment = alinearCentro;
+          });
+          const cT = worksheet.getCell(`F${filaActualTabla}`);
+          cT.value = calcularTotalMétrica(btn.id, pTarget.estadisticas);
+          cT.font = fontNegrita;
+          cT.border = borderFino;
+          cT.alignment = alinearCentro;
+
+          (btn.subetiquetas || []).forEach((sub: string) => {
+            filaActualTabla++;
+            worksheet.getRow(filaActualTabla).height = 18;
+            const subId = `${btn.id}__${sub.toLowerCase().replace(/ /g, "_")}`;
+            const cSubL = worksheet.getCell(`A${filaActualTabla}`);
+            cSubL.value = `   ↳ ${sub}`;
+            cSubL.font = fontNormal;
+            cSubL.border = borderFino;
+            ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
+              const c = worksheet.getCell(
+                `${String.fromCharCode(66 + i)}${filaActualTabla}`
+              );
+              c.value = pTarget.estadisticas?.[q]?.[subId] || 0;
+              c.border = borderFino;
+              c.alignment = alinearCentro;
+            });
+            const cSubT = worksheet.getCell(`F${filaActualTabla}`);
+            cSubT.value = calcularTotalMétrica(subId, pTarget.estadisticas);
+            cSubT.font = fontNegrita;
+            cSubT.border = borderFino;
+            cSubT.alignment = alinearCentro;
+          });
+        });
+
+      const nombreCategoria =
+        pTarget.categoria ||
+        listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
+        "Categoría";
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
+        pTarget.fecha
+      }_vs_${(pTarget.rival || "Rival").replace(/ /g, "_")}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error(err);
+    }
   };
-
-  if (cargandoAuth) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <h2>🔄 Cargando Sistema de Estadísticas...</h2>
-      </div>
-    );
-  }
-
-  if (!usuario) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          fontFamily: "sans-serif",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "16px",
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "#1f2937",
-            padding: "28px",
-            borderRadius: "12px",
-            border: "1px solid #374151",
-            width: "100%",
-            maxWidth: "400px",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
-          }}
-        >
-          <h2
-            style={{
-              textAlign: "center",
-              color: "#60a5fa",
-              marginTop: 0,
-              marginBottom: "4px",
-            }}
-          >
-            🏑 CLUB TALLERES
-          </h2>
-          <p
-            style={{
-              textAlign: "center",
-              color: "#9ca3af",
-              fontSize: "13px",
-              marginTop: 0,
-              marginBottom: "20px",
-            }}
-          >
-            Estadísticas y Análisis de Partidos
-          </p>
-          <form
-            onSubmit={manejarLoginClub}
-            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
-          >
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "14px",
-                  color: "#d1d5db",
-                }}
-              >
-                Usuario / Entrenador:
-              </label>
-              <input
-                type="text"
-                value={identificadorProfe}
-                onChange={(e) => setIdentificadorProfe(e.target.value)}
-                placeholder="Ej: baltha o coordinador"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "14px",
-                  color: "#d1d5db",
-                }}
-              >
-                Contraseña del Club:
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="******"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            {errorAuth && (
-              <div
-                style={{
-                  color: "#ef4444",
-                  fontSize: "13px",
-                  textAlign: "center",
-                  fontWeight: "bold",
-                }}
-              >
-                ⚠️ {errorAuth}
-              </div>
-            )}
-            <button
-              type="submit"
-              style={{
-                padding: "12px",
-                backgroundColor: "#2563eb",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontWeight: "bold",
-                fontSize: "15px",
-                cursor: "pointer",
-              }}
-            >
-              🔑 Ingresar
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   const esAdmin = perfilUsuario?.rol === "admin";
   const esCoordinador = perfilUsuario?.rol === "coordinador";
@@ -1104,6 +1064,7 @@ export default function App() {
                           display: "flex",
                           justifyContent: "space-between",
                           marginBottom: "10px",
+                          alignItems: "center",
                         }}
                       >
                         <button
@@ -1114,6 +1075,7 @@ export default function App() {
                             color: "white",
                             border: "none",
                             borderRadius: "6px",
+                            cursor: "pointer",
                           }}
                         >
                           ⬅️ Volver
@@ -1130,9 +1092,26 @@ export default function App() {
                               border: "none",
                               borderRadius: "6px",
                               fontWeight: "bold",
+                              cursor: "pointer",
                             }}
                           >
                             🏑 Reabrir
+                          </button>
+                          <button
+                            onClick={() =>
+                              exportarAExcel(partidoHistorialSeleccionado)
+                            }
+                            style={{
+                              padding: "6px 12px",
+                              backgroundColor: "#16a34a",
+                              color: "white",
+                              border: "none",
+                              borderRadius: "6px",
+                              fontWeight: "bold",
+                              cursor: "pointer",
+                            }}
+                          >
+                            📥 Excel
                           </button>
                           {esAdmin && (
                             <button
@@ -1149,6 +1128,7 @@ export default function App() {
                                 border: "none",
                                 borderRadius: "6px",
                                 fontWeight: "bold",
+                                cursor: "pointer",
                               }}
                             >
                               🗑️ Borrar
@@ -1308,7 +1288,6 @@ export default function App() {
                     </form>
                   )}
 
-                  {/* 🔥 NUEVO: SECCIÓN ASIGNAR ENTRENADORES DIRECTO EN LA CATEGORÍA */}
                   {esAdmin && equipoSeleccionado && (
                     <div
                       style={{
@@ -1559,7 +1538,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Configuración Estructural */}
                   <div
                     style={{
                       backgroundColor: "#111827",
@@ -2296,6 +2274,10 @@ export default function App() {
               justifyContent: "space-between",
               alignItems: "center",
               marginBottom: "14px",
+              backgroundColor: "#1f2937",
+              padding: "8px 12px",
+              borderRadius: "10px",
+              border: "1px solid #374151",
             }}
           >
             <button
@@ -2312,34 +2294,64 @@ export default function App() {
             >
               🚩 Cerrar Partido
             </button>
-            <div style={{ display: "flex", gap: "6px" }}>
+
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <button
-                onClick={() => setVista("telefono")}
+                onClick={() => exportarAExcel(null)}
                 style={{
-                  padding: "6px 12px",
-                  borderRadius: "12px",
-                  backgroundColor: vista === "telefono" ? "#6366f1" : "#374151",
+                  padding: "8px 14px",
+                  backgroundColor: "#16a34a",
                   color: "white",
                   border: "none",
+                  borderRadius: "8px",
+                  fontWeight: "bold",
                   cursor: "pointer",
+                  fontSize: "13px",
                 }}
               >
-                📲 Cel
+                📥 Descargar Excel
               </button>
-              <button
-                onClick={() => setVista("computadora")}
+
+              <div
                 style={{
-                  padding: "6px 12px",
-                  borderRadius: "12px",
-                  backgroundColor:
-                    vista === "computadora" ? "#6366f1" : "#374151",
-                  color: "white",
-                  border: "none",
-                  cursor: "pointer",
+                  display: "flex",
+                  gap: "3px",
+                  backgroundColor: "#111827",
+                  padding: "2px",
+                  borderRadius: "8px",
                 }}
               >
-                💻 PC
-              </button>
+                <button
+                  onClick={() => setVista("telefono")}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    backgroundColor:
+                      vista === "telefono" ? "#6366f1" : "transparent",
+                    color: "white",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                  }}
+                >
+                  📲 Cel
+                </button>
+                <button
+                  onClick={() => setVista("computadora")}
+                  style={{
+                    padding: "6px 10px",
+                    borderRadius: "6px",
+                    backgroundColor:
+                      vista === "computadora" ? "#6366f1" : "transparent",
+                    color: "white",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "12px",
+                  }}
+                >
+                  💻 PC
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2598,7 +2610,7 @@ export default function App() {
             </div>
           )}
 
-          {/* FLOTANTE SUBETIQUETAS */}
+          {/* DESGLOSE SUBETIQUETAS */}
           {botonActivoSubmenu && (
             <div
               style={{
