@@ -27,6 +27,7 @@ const PALETA_COLORES = [
   { nombre: "Rojo Alerta", hex: "#b91c1c" },
   { nombre: "Azul Táctico", hex: "#1d4ed8" },
   { nombre: "Amarillo Alerta", hex: "#b45309" },
+  { nombre: "Negro", hex: "#1f2937" },
   { nombre: "Morado Especial", hex: "#6b21a8" },
   { nombre: "Gris Neutro", hex: "#4b5563" },
 ];
@@ -34,22 +35,38 @@ const PALETA_COLORES = [
 // Estructura base por si el profe no configuró nada todavía
 const BOTONES_POR_DEFECTO = [
   {
+    id: "goles_menu",
+    nombre: "⚽ ¡GOL!",
+    color: "#d97706",
+    orden: 0,
+    esGol: true,
+  },
+  {
     id: "ingresos_area_favor",
     nombre: "Área Favor",
     color: "#15803d",
-    orden: 0,
+    orden: 1,
   },
   {
     id: "ingresos_area_contra",
     nombre: "Área Contra",
     color: "#b91c1c",
-    orden: 1,
+    orden: 2,
   },
-  { id: "tiros_favor", nombre: "Tiro Favor", color: "#166534", orden: 2 },
-  { id: "tiros_contra", nombre: "Tiro Contra", color: "#991b1b", orden: 3 },
-  { id: "cortos_favor", nombre: "Corto Favor", color: "#059669", orden: 4 },
-  { id: "cortos_contra", nombre: "Corto Contra", color: "#e11d48", orden: 5 },
+  { id: "tiros_favor", nombre: "Tiro Favor", color: "#166534", orden: 3 },
+  { id: "tiros_contra", nombre: "Tiro Contra", color: "#991b1b", orden: 4 },
+  { id: "cortos_favor", nombre: "Corto Favor", color: "#059669", orden: 5 },
+  { id: "cortos_contra", nombre: "Corto Contra", color: "#e11d48", orden: 6 },
 ];
+
+// Función auxiliar para formatear MM:SS
+const formatearTiempo = (totalSegundos: number) => {
+  const mins = Math.floor(totalSegundos / 60);
+  const secs = totalSegundos % 60;
+  return `${mins.toString().padStart(2, "0")}:${secs
+    .toString()
+    .padStart(2, "0")}`;
+};
 
 export default function App() {
   // --- ESTADOS DE AUTENTICACIÓN Y ROLES ---
@@ -65,16 +82,23 @@ export default function App() {
   const [listaEquipos, setListaEquipos] = useState<any[]>([]);
   const [equipoSeleccionado, setEquipoSeleccionado] = useState<string>("");
   const [jugadorasDelEquipo, setJugadorasDelEquipo] = useState<string[]>([]);
-  const [botonesDinamicos, setBotonesDinamicos] = useState<any[]>([]); // <--- Botones activos del equipo actual
+  const [botonesDinamicos, setBotonesDinamicos] = useState<any[]>([]);
   const [listaTodosLosProfes, setListaTodosLosProfes] = useState<any[]>([]);
 
   const [modoAdmin, setModoAdmin] = useState<boolean>(false);
   const [nuevoNombreEquipo, setNuevoNombreEquipo] = useState<string>("");
   const [nuevasJugadorasTexto, setNuevasJugadorasTexto] = useState<string>("");
 
+  // Estados para la edición directa de nombres de jugadoras
+  const [jugadoraEditando, setJugadoraEditando] = useState<string | null>(null);
+  const [nuevoNombreEditado, setNuevoNombreEditado] = useState<string>("");
+
   // Estados para la creación de un nuevo botón dinámico
   const [nuevoBtnNombre, setNuevoBtnNombre] = useState<string>("");
   const [nuevoBtnColor, setNuevoBtnColor] = useState<string>("#4b5563");
+
+  // --- ESTADO PARA SUBMENÚ FLOTANTE ---
+  const [mostrarSubmenuGol, setMostrarSubmenuGol] = useState<boolean>(false);
 
   // Estados de Configuración del Partido
   const [partidoIniciado, setPartidoIniciado] = useState<boolean>(false);
@@ -164,7 +188,6 @@ export default function App() {
       setListaEquipos(equiposFiltrados);
 
       if (equiposFiltrados.length > 0) {
-        // Seleccionar el primero por defecto si no hay uno fijado
         const inicialId =
           equipoSeleccionado &&
           equiposFiltrados.some((e) => e.id === equipoSeleccionado)
@@ -174,7 +197,6 @@ export default function App() {
         const eqEncontrado = equiposFiltrados.find((e) => e.id === inicialId);
         setJugadorasDelEquipo(eqEncontrado?.jugadoras || []);
 
-        // Cargar sus botones correspondientes
         const btns =
           eqEncontrado?.botones && eqEncontrado.botones.length > 0
             ? [...eqEncontrado.botones].sort((a, b) => a.orden - b.orden)
@@ -228,7 +250,6 @@ export default function App() {
     }
   }, [perfilUsuario]);
 
-  // Sincronizar botones al cambiar el selector de categoría
   const manejarCambioEquipo = (id: string) => {
     setEquipoSeleccionado(id);
     const equipo = listaEquipos.find((eq) => eq.id === id);
@@ -242,7 +263,6 @@ export default function App() {
     setSuplentes([]);
   };
 
-  // --- CONTROLADOR DE PERMISOS DE PROFES ---
   const alternarPermisoCategoria = async (
     idProfe: string,
     idCat: string,
@@ -261,14 +281,12 @@ export default function App() {
     }
   };
 
-  // --- CONTROL DE BOTONES DINÁMICOS POR CATEGORÍA ---
   const guardarBotonesEnFirestore = async (nuevosBotones: any[]) => {
     if (!equipoSeleccionado) return;
     try {
       const eqRef = doc(db, "equipos_club", equipoSeleccionado);
       await updateDoc(eqRef, { botones: nuevosBotones });
       setBotonesDinamicos(nuevosBotones.sort((a, b) => a.orden - b.orden));
-      // Actualizar lista global de equipos local
       setListaEquipos((prev) =>
         prev.map((eq) =>
           eq.id === equipoSeleccionado ? { ...eq, botones: nuevosBotones } : eq
@@ -299,8 +317,7 @@ export default function App() {
   };
 
   const eliminarBotonDinamico = (idBtn: string) => {
-    if (!window.confirm("¿Querés eliminar esta métrica de la botonera?"))
-      return;
+    if (!window.confirm("¿Querés eliminar esta métrica?")) return;
     const listaFiltrada = botonesDinamicos
       .filter((b) => b.id !== idBtn)
       .map((b, index) => ({ ...b, orden: index }));
@@ -310,27 +327,18 @@ export default function App() {
   const moverOrdenBoton = (index: number, direccion: "subir" | "bajar") => {
     if (direccion === "subir" && index === 0) return;
     if (direccion === "bajar" && index === botonesDinamicos.length - 1) return;
-
     const nuevaLista = [...botonesDinamicos];
     const objetivoIdx = direccion === "subir" ? index - 1 : index + 1;
-
-    // Intercambiar posiciones
     const temp = nuevaLista[index];
     nuevaLista[index] = nuevaLista[objetivoIdx];
     nuevaLista[objetivoIdx] = temp;
-
-    // Reasignar propiedad 'orden' secuencial
     const listaCorregida = nuevaLista.map((b, i) => ({ ...b, orden: i }));
     guardarBotonesEnFirestore(listaCorregida);
   };
 
-  // --- MANEJO DE LOGIN / REGISTRO ---
   const manejarAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorAuth("");
-    if (!email.trim() || !password.trim())
-      return setErrorAuth("Completa todos los campos");
-
     try {
       if (esRegistro) {
         const credencial = await createUserWithEmailAndPassword(
@@ -348,7 +356,7 @@ export default function App() {
       }
     } catch (error: any) {
       console.error(error);
-      setErrorAuth("Ocurrió un error en la autenticación. Revisá los datos.");
+      setErrorAuth("Error en la autenticación.");
     }
   };
 
@@ -364,7 +372,6 @@ export default function App() {
     if (!nuevoNombreEquipo.trim() || !perfilUsuario) return;
     if (perfilUsuario.rol !== "coordinador")
       return alert("Solo el coordinador puede crear categorías.");
-
     const idSugerido = nuevoNombreEquipo.toLowerCase().replace(/ /g, "_");
     try {
       await setDoc(doc(db, "equipos_club", idSugerido), {
@@ -401,10 +408,36 @@ export default function App() {
     }
   };
 
+  // --- NUEVA FUNCIÓN: EDITAR NOMBRE DIRECTO EN FIRESTORE ---
+  const modificarNombreJugadora = async (nombreViejo: string) => {
+    if (!nuevoNombreEditado.trim() || !equipoSeleccionado || !perfilUsuario)
+      return;
+    if (nombreViejo === nuevoNombreEditado.trim()) {
+      setJugadoraEditando(null);
+      return;
+    }
+
+    try {
+      // Creamos el nuevo array reemplazando el string exacto
+      const nuevoArrayJugadoras = jugadorasDelEquipo.map((j) =>
+        j === nombreViejo ? nuevoNombreEditado.trim() : j
+      );
+
+      await updateDoc(doc(db, "equipos_club", equipoSeleccionado), {
+        jugadoras: nuevoArrayJugadoras,
+      });
+      setJugadorasDelEquipo(nuevoArrayJugadoras);
+      setJugadoraEditando(null);
+      setNuevoNombreEditado("");
+      await cargarDatosClub(perfilUsuario);
+    } catch (e) {
+      console.error("Error al editar jugadora: ", e);
+    }
+  };
+
   const eliminarJugadoraIndividual = async (nombreJugadora: string) => {
     if (!perfilUsuario) return;
-    const seguro = window.confirm(`¿Querés eliminar a ${nombreJugadora}?`);
-    if (!seguro) return;
+    if (!window.confirm(`¿Querés eliminar a ${nombreJugadora}?`)) return;
     try {
       const nuevoArray = jugadorasDelEquipo.filter((j) => j !== nombreJugadora);
       await updateDoc(doc(db, "equipos_club", equipoSeleccionado), {
@@ -425,9 +458,7 @@ export default function App() {
       (docSnap) => {
         if (docSnap.exists()) {
           const datos = docSnap.data();
-          if (datos.estadisticas) {
-            setEstadisticas(datos.estadisticas);
-          }
+          if (datos.estadisticas) setEstadisticas(datos.estadisticas);
           if (datos.rival) setRival(datos.rival);
           if (datos.cancha) setCancha(datos.cancha);
           if (datos.fecha) setFecha(datos.fecha);
@@ -451,7 +482,6 @@ export default function App() {
       .replace(/ /g, "_")}`;
     setIdPartido(nuevoId);
 
-    // Inicializar estructura limpia de estadísticas para el partido basada en los botones del equipo
     const estructuraInicialEstadisticas: any = {
       "1Q": {},
       "2Q": {},
@@ -462,6 +492,8 @@ export default function App() {
       botonesDinamicos.forEach((b) => {
         estructuraInicialEstadisticas[q][b.id] = 0;
       });
+      estructuraInicialEstadisticas[q]["goles_favor"] = 0;
+      estructuraInicialEstadisticas[q]["goles_contra"] = 0;
     });
 
     await setDoc(doc(db, "partidos_club", nuevoId), {
@@ -475,7 +507,7 @@ export default function App() {
       titulares,
       suplentes,
       estadisticas: estructuraInicialEstadisticas,
-      configuracion_botones: botonesDinamicos, // Guardamos la foto de cómo eran los botones en este partido
+      configuracion_botones: botonesDinamicos,
     });
     setPartidoIniciado(true);
   };
@@ -506,8 +538,7 @@ export default function App() {
   };
 
   const finalizarPartido = () => {
-    const seguro = window.confirm("¿Querés cerrar la mesa de control?");
-    if (seguro && perfilUsuario) {
+    if (window.confirm("¿Querés cerrar la mesa de control?")) {
       setCorriendo(false);
       setSegundos(0);
       setPartidoIniciado(false);
@@ -571,18 +602,14 @@ export default function App() {
 
       worksheet.mergeCells("A2:F2");
       worksheet.getCell("A2").value =
-        "PLANILLA PERSONALIZADA DE ANÁLISIS DE PARTIDO";
-      worksheet.getCell("A2").font = { name: "Calibri", bold: true, size: 14 };
-      worksheet.getCell("A2").alignment = { horizontal: "center" };
+        "PLANILLA PERSONALIZADA - CON GOLES DISCRIMINADOS";
+      worksheet.getCell("A2").font = { bold: true, size: 14 };
 
       worksheet.getCell("A4").value = "Categoría:";
       worksheet.getCell("B4").value = pTarget.categoria || "Talleres";
       worksheet.getCell("C4").value = "Rival:";
       worksheet.getCell("D4").value = pTarget.rival;
-      worksheet.getCell("E4").value = "Fecha:";
-      worksheet.getCell("F4").value = pTarget.fecha;
 
-      // Encabezados de tabla dinámica
       const filaTabla = 8;
       const encabezados = [
         "Métrica / Botón",
@@ -593,18 +620,14 @@ export default function App() {
         "TOTAL",
       ];
       encabezados.forEach((text, idx) => {
-        const cell = worksheet.getCell(filaTabla, idx + 1);
-        cell.value = text;
-        cell.font = { bold: true };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFEFEFEF" },
-        };
+        worksheet.getCell(filaTabla, idx + 1).value = text;
+        worksheet.getCell(filaTabla, idx + 1).font = { bold: true };
       });
 
+      let offset = 0;
       btnsFicha.forEach((btn: any, bIdx: number) => {
-        const fAct = filaTabla + 1 + bIdx;
+        if (btn.esGol) return;
+        const fAct = filaTabla + 1 + offset;
         worksheet.getCell(fAct, 1).value = btn.nombre;
         worksheet.getCell(fAct, 2).value =
           pTarget.estadisticas?.["1Q"]?.[btn.id] || 0;
@@ -618,7 +641,22 @@ export default function App() {
           btn.id,
           pTarget.estadisticas
         );
+        offset++;
       });
+
+      const filaGolesFav = filaTabla + 1 + offset;
+      worksheet.getCell(filaGolesFav, 1).value = "Goles a Favor (CAT)";
+      worksheet.getCell(filaGolesFav, 6).value = calcularTotal(
+        "goles_favor",
+        pTarget.estadisticas
+      );
+
+      const filaGolesContra = filaGolesFav + 1;
+      worksheet.getCell(filaGolesContra, 1).value = "Goles en Contra (Rival)";
+      worksheet.getCell(filaGolesContra, 6).value = calcularTotal(
+        "goles_contra",
+        pTarget.estadisticas
+      );
 
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
@@ -627,39 +665,13 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Estadisticas_${pTarget.fecha}_vs_${pTarget.rival.replace(
-        / /g,
-        "_"
-      )}.xlsx`;
+      link.download = `Estadisticas_${pTarget.fecha}_vs_${pTarget.rival}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     } catch (err) {
       console.error(err);
     }
-  };
-
-  const asignarRol = (nombre: string, rol: string) => {
-    const tFiltrado = titulares.filter((j) => j !== nombre);
-    const sFiltrado = suplentes.filter((j) => j !== nombre);
-    if (rol === "titular") {
-      setTitulares([...tFiltrado, nombre]);
-      setSuplentes(sFiltrado);
-    } else if (rol === "suplente") {
-      setSuplentes([...sFiltrado, nombre]);
-      setTitulares(tFiltrado);
-    } else {
-      setTitulares(tFiltrado);
-      setSuplentes(sFiltrado);
-    }
-  };
-
-  const formatearTiempo = (totSegundos: number) => {
-    const min = Math.floor(totSegundos / 60);
-    const seg = totSegundos % 60;
-    return `${min.toString().padStart(2, "0")}:${seg
-      .toString()
-      .padStart(2, "0")}`;
   };
 
   const estiloInput: React.CSSProperties = {
@@ -683,7 +695,7 @@ export default function App() {
     textAlign: "center",
   };
 
-  // --- COMPONENTE DE BOTÓN DINÁMICO E INTELIGENTE ---
+  // --- BOTÓN DINÁMICO ADAPTATIVO ---
   const ComponenteBotonDinamico = ({ objetoBoton }: { objetoBoton: any }) => {
     const tiempoInicioRef = useRef<number>(0);
     const yaRostoRef = useRef<boolean>(false);
@@ -694,7 +706,12 @@ export default function App() {
       tiempoInicioRef.current = Date.now();
       yaRostoRef.current = false;
       timerRestaRef.current = setTimeout(() => {
-        manejarResta(objetoBoton.id);
+        if (!objetoBoton.esGol) {
+          manejarResta(objetoBoton.id);
+        } else {
+          if (window.confirm("¿Querés restar un Gol a Favor?"))
+            manejarResta("goles_favor");
+        }
         yaRostoRef.current = true;
         if (navigator.vibrate) navigator.vibrate(55);
       }, 450);
@@ -704,9 +721,18 @@ export default function App() {
       if (e.type === "touchend") e.preventDefault();
       clearTimeout(timerRestaRef.current);
       if (Date.now() - tiempoInicioRef.current < 400 && !yaRostoRef.current) {
-        manejarSuma(objetoBoton.id);
+        if (objetoBoton.esGol) {
+          setMostrarSubmenuGol(true);
+        } else {
+          manejarSuma(objetoBoton.id);
+        }
       }
     };
+
+    const totalMostrar = objetoBoton.esGol
+      ? (estadisticas[cuartoActual]?.["goles_favor"] || 0) +
+        (estadisticas[cuartoActual]?.["goles_contra"] || 0)
+      : estadisticas[cuartoActual]?.[objetoBoton.id] || 0;
 
     return (
       <button
@@ -719,7 +745,7 @@ export default function App() {
           color: "white",
           border: "none",
           borderRadius: "12px",
-          padding: "20px 12px",
+          padding: "18px 12px",
           fontWeight: "bold",
           fontSize: "18px",
           cursor: "pointer",
@@ -728,30 +754,22 @@ export default function App() {
           flexDirection: "column",
           justifyContent: "center",
           alignItems: "center",
-          gap: "6px",
+          gap: "4px",
           boxShadow: "0 4px 6px -1px rgba(0,0,0,0.3)",
           width: "100%",
         }}
       >
         <span
           style={{
-            fontSize: "14px",
-            opacity: 0.95,
+            fontSize: "13px",
             textTransform: "uppercase",
-            letterSpacing: "0.5px",
             textAlign: "center",
           }}
         >
           {objetoBoton.nombre}
         </span>
-        <span
-          style={{
-            fontSize: "28px",
-            fontFamily: "monospace",
-            fontWeight: "black",
-          }}
-        >
-          {estadisticas[cuartoActual]?.[objetoBoton.id] || 0}
+        <span style={{ fontSize: "26px", fontFamily: "monospace" }}>
+          {totalMostrar}
         </span>
       </button>
     );
@@ -767,10 +785,9 @@ export default function App() {
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
-          fontFamily: "sans-serif",
         }}
       >
-        <h2>🔄 Cargando Sistema de Hockey Personalizable...</h2>
+        <h2>🔄 Cargando Mesa de Control...</h2>
       </div>
     );
   }
@@ -787,7 +804,6 @@ export default function App() {
           justifyContent: "center",
           alignItems: "center",
           padding: "16px",
-          boxSizing: "border-box",
         }}
       >
         <div
@@ -798,117 +814,46 @@ export default function App() {
             padding: "28px",
             borderRadius: "12px",
             border: "1px solid #374151",
-            boxShadow: "0 10px 15px -3px rgba(0,0,0,0.5)",
           }}
         >
-          <h2
-            style={{
-              textAlign: "center",
-              color: "#60a5fa",
-              marginTop: 0,
-              marginBottom: "6px",
-            }}
-          >
+          <h2 style={{ textAlign: "center", color: "#60a5fa", marginTop: 0 }}>
             🏑 CONTROL DE ESTADÍSTICAS
           </h2>
-          <p
-            style={{
-              textAlign: "center",
-              color: "#9ca3af",
-              fontSize: "14px",
-              marginTop: 0,
-              marginBottom: "24px",
-            }}
-          >
-            Métricas Adaptativas por Categoría
-          </p>
           <form
             onSubmit={manejarAuth}
             style={{ display: "flex", flexDirection: "column", gap: "14px" }}
           >
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "4px",
-                  fontSize: "14px",
-                }}
-              >
-                Correo Electrónico:
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="dt@talleres.com"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "4px",
-                  fontSize: "14px",
-                }}
-              >
-                Contraseña:
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="******"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            {errorAuth && (
-              <div
-                style={{
-                  color: "#ef4444",
-                  fontSize: "14px",
-                  textAlign: "center",
-                }}
-              >
-                ⚠️ {errorAuth}
-              </div>
-            )}
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="dt@talleres.com"
+              style={estiloInput as any}
+              required
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="******"
+              style={estiloInput as any}
+              required
+            />
             <button
               type="submit"
               style={{
-                marginTop: "8px",
                 padding: "12px",
                 borderRadius: "8px",
                 border: "none",
                 backgroundColor: "#2563eb",
                 color: "white",
                 fontWeight: "bold",
-                fontSize: "16px",
                 cursor: "pointer",
               }}
             >
-              {esRegistro ? "🚀 Registrar Nuevo Técnico" : "🔑 Iniciar Sesión"}
+              🔑 Ingresar
             </button>
           </form>
-          <div
-            style={{ textAlign: "center", marginTop: "18px", fontSize: "14px" }}
-          >
-            <button
-              onClick={() => setEsRegistro(!esRegistro)}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#60a5fa",
-                cursor: "pointer",
-                fontWeight: "bold",
-                textDecoration: "underline",
-              }}
-            >
-              {esRegistro ? "Iniciá Sesión acá" : "Registrate acá"}
-            </button>
-          </div>
         </div>
       </div>
     );
@@ -939,11 +884,7 @@ export default function App() {
         }}
       >
         <span style={{ fontSize: "13px", color: "#9ca3af" }}>
-          🏃‍♂️ Rol:{" "}
-          <b style={{ color: "#60a5fa" }}>
-            {perfilUsuario?.rol?.toUpperCase()}
-          </b>{" "}
-          ({usuario.email})
+          🏃‍♂️ Técnico: <b>{usuario.email}</b>
         </span>
         <button
           onClick={cerrarSesion}
@@ -1003,7 +944,7 @@ export default function App() {
                 cursor: "pointer",
               }}
             >
-              {vistaHistorial ? "❌ Cerrar Historial" : "📂 Historial Partidos"}
+              {vistaHistorial ? "❌ Cerrar Historial" : "📂 Historial"}
             </button>
           </div>
 
@@ -1015,9 +956,6 @@ export default function App() {
                 padding: "20px",
                 borderRadius: "12px",
                 border: "2px solid #0284c7",
-                display: "flex",
-                flexDirection: "column",
-                gap: "16px",
               }}
             >
               <h3
@@ -1035,118 +973,45 @@ export default function App() {
                     overflowY: "auto",
                   }}
                 >
-                  {listaPartidosViejos.filter(
-                    (p) => p.id_categoria === equipoSeleccionado
-                  ).length === 0 ? (
-                    <div
-                      style={{
-                        fontSize: "13px",
-                        color: "#94a3b8",
-                        textAlign: "center",
-                      }}
-                    >
-                      No hay partidos para esta categoría.
-                    </div>
-                  ) : (
-                    listaPartidosViejos
-                      .filter((p) => p.id_categoria === equipoSeleccionado)
-                      .map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => setPartidoHistorialSeleccionado(p)}
-                          style={{
-                            padding: "12px",
-                            backgroundColor: "#334155",
-                            border: "1px solid #475569",
-                            borderRadius: "8px",
-                            color: "white",
-                            textAlign: "left",
-                            cursor: "pointer",
-                            display: "flex",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <span>
-                            📅 {p.fecha} - <b>vs {p.rival}</b>
-                          </span>
-                          <span style={{ color: "#38bdf8", fontSize: "13px" }}>
-                            Ver ➡️
-                          </span>
-                        </button>
-                      ))
-                  )}
+                  {listaPartidosViejos
+                    .filter((p) => p.id_categoria === equipoSeleccionado)
+                    .map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setPartidoHistorialSeleccionado(p)}
+                        style={{
+                          padding: "12px",
+                          backgroundColor: "#334155",
+                          border: "1px solid #475569",
+                          borderRadius: "8px",
+                          color: "white",
+                          textAlignment: "left",
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <span>
+                          📅 {p.fecha} - <b>vs {p.rival}</b>
+                        </span>
+                        <span style={{ color: "#38bdf8" }}>Ver ➡️</span>
+                      </button>
+                    ))}
                 </div>
               ) : (
                 <div>
-                  <div
+                  <button
+                    onClick={() => setPartidoHistorialSeleccionado(null)}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      marginBottom: "12px",
+                      padding: "6px 12px",
+                      backgroundColor: "#475569",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      marginBottom: "10px",
                     }}
                   >
-                    <button
-                      onClick={() => setPartidoHistorialSeleccionado(null)}
-                      style={{
-                        padding: "6px 12px",
-                        backgroundColor: "#475569",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "6px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      ⬅️ Volver
-                    </button>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <button
-                        onClick={() =>
-                          reingresarAPartido(partidoHistorialSeleccionado)
-                        }
-                        style={{
-                          padding: "6px 12px",
-                          backgroundColor: "#2563eb",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "6px",
-                          fontWeight: "bold",
-                          cursor: "pointer",
-                        }}
-                      >
-                        🏑 Reabrir
-                      </button>
-                      <button
-                        onClick={() =>
-                          exportarAExcel(partidoHistorialSeleccionado)
-                        }
-                        style={{
-                          padding: "6px 12px",
-                          backgroundColor: "#16a34a",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "6px",
-                          fontWeight: "bold",
-                          cursor: "pointer",
-                        }}
-                      >
-                        📥 Excel
-                      </button>
-                    </div>
-                  </div>
-                  <div
-                    style={{
-                      backgroundColor: "#0f172a",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      fontSize: "14px",
-                      marginBottom: "12px",
-                    }}
-                  >
-                    <div>
-                      📌 <b>Rival:</b> {partidoHistorialSeleccionado.rival} |
-                      Cancha: {partidoHistorialSeleccionado.cancha || "Agua"}
-                    </div>
-                  </div>
+                    ⬅️ Volver
+                  </button>
                   <div style={{ overflowX: "auto" }}>
                     <table
                       style={{
@@ -1156,92 +1021,40 @@ export default function App() {
                         backgroundColor: "#0f172a",
                       }}
                     >
-                      <thead>
-                        <tr>
-                          <th
-                            style={{
-                              border: "1px solid #334155",
-                              padding: "6px",
-                              backgroundColor: "#1e293b",
-                            }}
-                          >
-                            Métrica
-                          </th>
-                          <th
-                            style={{
-                              border: "1px solid #334155",
-                              padding: "6px",
-                              backgroundColor: "#1e293b",
-                            }}
-                          >
-                            1Q
-                          </th>
-                          <th
-                            style={{
-                              border: "1px solid #334155",
-                              padding: "6px",
-                              backgroundColor: "#1e293b",
-                            }}
-                          >
-                            2Q
-                          </th>
-                          <th
-                            style={{
-                              border: "1px solid #334155",
-                              padding: "6px",
-                              backgroundColor: "#1e293b",
-                            }}
-                          >
-                            3Q
-                          </th>
-                          <th
-                            style={{
-                              border: "1px solid #334155",
-                              padding: "6px",
-                              backgroundColor: "#1e293b",
-                            }}
-                          >
-                            4Q
-                          </th>
-                          <th
-                            style={{
-                              border: "1px solid #334155",
-                              padding: "6px",
-                              backgroundColor: "#2563eb",
-                            }}
-                          >
-                            TOT
-                          </th>
-                        </tr>
-                      </thead>
                       <tbody>
+                        <tr style={{ backgroundColor: "#1e3a8a" }}>
+                          <td style={{ padding: "6px", fontWeight: "bold" }}>
+                            Goles Favor (Club)
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {calcularTotal(
+                              "goles_favor",
+                              partidoHistorialSeleccionado.estadisticas
+                            )}
+                          </td>
+                        </tr>
+                        <tr style={{ backgroundColor: "#7f1d1d" }}>
+                          <td style={{ padding: "6px", fontWeight: "bold" }}>
+                            Goles Contra (Rival)
+                          </td>
+                          <td style={{ textAlign: "center" }}>
+                            {calcularTotal(
+                              "goles_contra",
+                              partidoHistorialSeleccionado.estadisticas
+                            )}
+                          </td>
+                        </tr>
                         {(
                           partidoHistorialSeleccionado.configuracion_botones ||
                           BOTONES_POR_DEFECTO
-                        ).map((btn: any) => {
-                          const q1 =
-                            partidoHistorialSeleccionado.estadisticas?.["1Q"]?.[
-                              btn.id
-                            ] || 0;
-                          const q2 =
-                            partidoHistorialSeleccionado.estadisticas?.["2Q"]?.[
-                              btn.id
-                            ] || 0;
-                          const q3 =
-                            partidoHistorialSeleccionado.estadisticas?.["3Q"]?.[
-                              btn.id
-                            ] || 0;
-                          const q4 =
-                            partidoHistorialSeleccionado.estadisticas?.["4Q"]?.[
-                              btn.id
-                            ] || 0;
-                          return (
+                        )
+                          .filter((b: any) => !b.esGol)
+                          .map((btn: any) => (
                             <tr key={btn.id}>
                               <td
                                 style={{
                                   border: "1px solid #334155",
                                   padding: "6px",
-                                  fontWeight: "bold",
                                 }}
                               >
                                 {btn.nombre}
@@ -1251,51 +1064,16 @@ export default function App() {
                                   border: "1px solid #334155",
                                   padding: "6px",
                                   textAlign: "center",
-                                }}
-                              >
-                                {q1}
-                              </td>
-                              <td
-                                style={{
-                                  border: "1px solid #334155",
-                                  padding: "6px",
-                                  textAlign: "center",
-                                }}
-                              >
-                                {q2}
-                              </td>
-                              <td
-                                style={{
-                                  border: "1px solid #334155",
-                                  padding: "6px",
-                                  textAlign: "center",
-                                }}
-                              >
-                                {q3}
-                              </td>
-                              <td
-                                style={{
-                                  border: "1px solid #334155",
-                                  padding: "6px",
-                                  textAlign: "center",
-                                }}
-                              >
-                                {q4}
-                              </td>
-                              <td
-                                style={{
-                                  border: "1px solid #334155",
-                                  padding: "6px",
-                                  textAlign: "center",
                                   fontWeight: "bold",
-                                  backgroundColor: "#1e3a8a",
                                 }}
                               >
-                                {q1 + q2 + q3 + q4}
+                                {calcularTotal(
+                                  btn.id,
+                                  partidoHistorialSeleccionado.estadisticas
+                                )}
                               </td>
                             </tr>
-                          );
-                        })}
+                          ))}
                       </tbody>
                     </table>
                   </div>
@@ -1304,7 +1082,7 @@ export default function App() {
             </div>
           )}
 
-          {/* PANEL ADMIN: CONFIGURACIÓN GENERAL Y BOTONERA */}
+          {/* PANEL ADMIN (EDICIÓN DIRECTA INTEGRADA) */}
           {modoAdmin && (
             <div
               style={{
@@ -1314,330 +1092,68 @@ export default function App() {
                 border: "2px dashed #4f46e5",
                 display: "flex",
                 flexDirection: "column",
-                gap: "16px",
+                gap: "14px",
               }}
             >
-              <h3 style={{ marginTop: 0, color: "#818cf8" }}>
-                ⚙️ CONFIGURACIÓN Y PERMISOS
-              </h3>
-
               {perfilUsuario?.rol === "coordinador" && (
-                <>
-                  <form
-                    onSubmit={crearNuevoEquipo}
+                <form
+                  onSubmit={crearNuevoEquipo}
+                  style={{ display: "flex", gap: "8px" }}
+                >
+                  <input
+                    type="text"
+                    value={nuevoNombreEquipo}
+                    onChange={(e) => setNuevoNombreEquipo(e.target.value)}
+                    placeholder="Ej: Sub 14 Damas"
+                    style={estiloInput as any}
+                  />
+                  <button
+                    type="submit"
                     style={{
-                      display: "flex",
-                      gap: "8px",
-                      borderBottom: "1px solid #374151",
-                      paddingBottom: "12px",
+                      padding: "10px",
+                      backgroundColor: "#10b981",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
                     }}
                   >
-                    <input
-                      type="text"
-                      value={nuevoNombreEquipo}
-                      onChange={(e) => setNuevoNombreEquipo(e.target.value)}
-                      placeholder="Ej: Sub 14 Damas"
-                      style={estiloInput as any}
-                    />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "10px 16px",
-                        backgroundColor: "#10b981",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "6px",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                      }}
-                    >
-                      + Crear
-                    </button>
-                  </form>
-                  <div
-                    style={{
-                      backgroundColor: "#111827",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      border: "1px solid #374151",
-                    }}
-                  >
-                    <h4
-                      style={{
-                        marginTop: 0,
-                        color: "#60a5fa",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      📋 Permisos de Profes
-                    </h4>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "10px",
-                        maxHeight: "150px",
-                        overflowY: "auto",
-                        fontSize: "12px",
-                      }}
-                    >
-                      {listaTodosLosProfes
-                        .filter((p) => p.rol !== "coordinador")
-                        .map((profe) => (
-                          <div
-                            key={profe.id}
-                            style={{
-                              backgroundColor: "#1f2937",
-                              padding: "8px",
-                              borderRadius: "4px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontWeight: "bold",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              📧 {profe.email}
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: "6px",
-                              }}
-                            >
-                              {listaEquipos.map((eq) => {
-                                const tieneAcceso =
-                                  profe.categoriasPermitidas?.includes(eq.id);
-                                return (
-                                  <label
-                                    key={eq.id}
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "3px",
-                                      backgroundColor: tieneAcceso
-                                        ? "#1e3a8a"
-                                        : "#374151",
-                                      padding: "2px 4px",
-                                      borderRadius: "3px",
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={!!tieneAcceso}
-                                      onChange={() =>
-                                        alternarPermisoCategoria(
-                                          profe.id,
-                                          eq.id,
-                                          !!tieneAcceso
-                                        )
-                                      }
-                                    />
-                                    {eq.nombre}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                </>
+                    + Categoría
+                  </button>
+                </form>
               )}
 
-              {/* NUEVO SUB-PANEL: ARMAR BOTONERA PERSONALIZADA */}
+              {/* 👥 SECCIÓN DE CONFIGURACIÓN DE PLANTEL CON EDICIÓN DIRECTA */}
               {equipoSeleccionado && (
                 <div
                   style={{
                     backgroundColor: "#111827",
-                    padding: "14px",
+                    padding: "12px",
                     borderRadius: "8px",
-                    border: "1px solid #4f46e5",
                   }}
                 >
                   <h4
                     style={{
                       marginTop: 0,
-                      color: "#818cf8",
-                      marginBottom: "4px",
+                      color: "#10b981",
+                      marginBottom: "8px",
                     }}
                   >
-                    🎛️ Editar Botonera (
-                    {
-                      listaEquipos.find((e) => e.id === equipoSeleccionado)
-                        ?.nombre
-                    }
-                    )
+                    👥 Cargar / Modificar Jugadoras
                   </h4>
-                  <p
-                    style={{
-                      fontSize: "11px",
-                      color: "#94a3b8",
-                      marginTop: 0,
-                      marginBottom: "12px",
-                    }}
-                  >
-                    Personalizá el nombre, color y orden de las métricas en
-                    cancha.
-                  </p>
-
-                  {/* Formulario Agregar Botón */}
-                  <form
-                    onSubmit={agregarNuevoBoton}
-                    style={{
-                      display: "flex",
-                      gap: "6px",
-                      marginBottom: "12px",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={nuevoBtnNombre}
-                      onChange={(e) => setNuevoBtnNombre(e.target.value)}
-                      placeholder="Ej: Bloqueos"
-                      style={{ ...estiloInput, flex: 2 } as any}
-                    />
-                    <select
-                      value={nuevoBtnColor}
-                      onChange={(e) => setNuevoBtnColor(e.target.value)}
-                      style={{ ...estiloInput, flex: 1.2 } as any}
-                    >
-                      {PALETA_COLORES.map((c) => (
-                        <option key={c.hex} value={c.hex}>
-                          {c.nombre}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "10px 14px",
-                        backgroundColor: "#10b981",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "6px",
-                        fontWeight: "bold",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                      }}
-                    >
-                      ➕ Sumar
-                    </button>
-                  </form>
-
-                  {/* Lista de Botones para Ordenar y Pintar */}
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "6px",
-                      maxHeight: "200px",
-                      overflowY: "auto",
-                    }}
-                  >
-                    {botonesDinamicos.map((btn, idx) => (
-                      <div
-                        key={btn.id}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          backgroundColor: "#1f2937",
-                          padding: "6px 10px",
-                          borderRadius: "6px",
-                          borderLeft: `5px solid ${btn.color}`,
-                        }}
-                      >
-                        <span style={{ fontSize: "13px", fontWeight: "bold" }}>
-                          {btn.nombre}
-                        </span>
-                        <div style={{ display: "flex", gap: "4px" }}>
-                          <button
-                            type="button"
-                            onClick={() => moverOrdenBoton(idx, "subir")}
-                            disabled={idx === 0}
-                            style={{
-                              padding: "4px 6px",
-                              backgroundColor: "#374151",
-                              border: "none",
-                              color: "white",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "11px",
-                            }}
-                          >
-                            🔼
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moverOrdenBoton(idx, "bajar")}
-                            disabled={idx === botonesDinamicos.length - 1}
-                            style={{
-                              padding: "4px 6px",
-                              backgroundColor: "#374151",
-                              border: "none",
-                              color: "white",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontSize: "11px",
-                            }}
-                          >
-                            🔽
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => eliminarBotonDinamico(btn.id)}
-                            style={{
-                              padding: "4px 8px",
-                              backgroundColor: "#7f1d1d",
-                              border: "none",
-                              color: "#f87171",
-                              borderRadius: "4px",
-                              cursor: "pointer",
-                              fontWeight: "bold",
-                              fontSize: "11px",
-                            }}
-                          >
-                            ❌
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Carga de jugadoras */}
-              {listaEquipos.length > 0 && (
-                <>
                   <form
                     onSubmit={agregarJugadorasAlEquipo}
                     style={{
                       display: "flex",
-                      flexDirection: "column",
-                      gap: "8px",
+                      gap: "6px",
+                      marginBottom: "12px",
                     }}
                   >
-                    <label style={{ fontSize: "13px", color: "#94a3b8" }}>
-                      Jugadoras de (
-                      <b>
-                        {
-                          listaEquipos.find((e) => e.id === equipoSeleccionado)
-                            ?.nombre
-                        }
-                      </b>
-                      ):
-                    </label>
-                    <textarea
+                    <input
+                      type="text"
                       value={nuevasJugadorasTexto}
                       onChange={(e) => setNuevasJugadorasTexto(e.target.value)}
-                      placeholder="Delfina, Belen, Sofia"
-                      rows={2}
+                      placeholder="Nombres separados por coma (Ej: Juana, Meli)"
                       style={estiloInput as any}
                     />
                     <button
@@ -1649,60 +1165,268 @@ export default function App() {
                         border: "none",
                         borderRadius: "6px",
                         fontWeight: "bold",
-                        cursor: "pointer",
                       }}
                     >
-                      ➕ Cargar Jugadoras
+                      +
+                    </button>
+                  </form>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      maxHeight: "180px",
+                      overflowY: "auto",
+                      backgroundColor: "#1f2937",
+                      padding: "8px",
+                      borderRadius: "6px",
+                    }}
+                  >
+                    {jugadorasDelEquipo.length === 0 ? (
+                      <span style={{ color: "#6b7280", fontSize: "13px" }}>
+                        Sin jugadoras cargadas todavía.
+                      </span>
+                    ) : (
+                      jugadorasDelEquipo.map((j) => (
+                        <div
+                          key={j}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            backgroundColor: "#374151",
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          {jugadoraEditando === j ? (
+                            /* Vista en Modo Edición */
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "6px",
+                                width: "100%",
+                              }}
+                            >
+                              <input
+                                type="text"
+                                value={nuevoNombreEditado}
+                                onChange={(e) =>
+                                  setNuevoNombreEditado(e.target.value)
+                                }
+                                style={
+                                  {
+                                    ...estiloInput,
+                                    padding: "4px 8px",
+                                    fontSize: "13px",
+                                  } as any
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() => modificarNombreJugadora(j)}
+                                style={{
+                                  backgroundColor: "#10b981",
+                                  border: "none",
+                                  borderRadius: "4px",
+                                  color: "white",
+                                  padding: "4px 10px",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                💾
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setJugadoraEditando(null)}
+                                style={{
+                                  backgroundColor: "#6b7280",
+                                  border: "none",
+                                  borderRadius: "4px",
+                                  color: "white",
+                                  padding: "4px 10px",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ❌
+                              </button>
+                            </div>
+                          ) : (
+                            /* Vista Normal con Botón de Modificar y Borrar */
+                            <>
+                              <span
+                                style={{ fontSize: "13px", fontWeight: "bold" }}
+                              >
+                                {j}
+                              </span>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "10px",
+                                  alignItems: "center",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setJugadoraEditando(j);
+                                    setNuevoNombreEditado(j);
+                                  }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#60a5fa",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
+                                    padding: 0,
+                                  }}
+                                  title="Editar nombre"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => eliminarJugadoraIndividual(j)}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#f87171",
+                                    cursor: "pointer",
+                                    fontWeight: "bold",
+                                    fontSize: "15px",
+                                    padding: 0,
+                                  }}
+                                  title="Eliminar"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Ajustar Botonera */}
+              {equipoSeleccionado && (
+                <div
+                  style={{
+                    backgroundColor: "#111827",
+                    padding: "12px",
+                    borderRadius: "8px",
+                  }}
+                >
+                  <h4
+                    style={{
+                      marginTop: 0,
+                      color: "#818cf8",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    🎛️ Configurar Botones
+                  </h4>
+                  <form
+                    onSubmit={agregarNuevoBoton}
+                    style={{
+                      display: "flex",
+                      gap: "6px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={nuevoBtnNombre}
+                      onChange={(e) => setNuevoBtnNombre(e.target.value)}
+                      placeholder="Nueva Métrica"
+                      style={estiloInput as any}
+                    />
+                    <select
+                      value={nuevoBtnColor}
+                      onChange={(e) => setNuevoBtnColor(e.target.value)}
+                      style={estiloInput as any}
+                    >
+                      {PALETA_COLORES.map((c) => (
+                        <option key={c.hex} value={c.hex}>
+                          {c.nombre}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="submit"
+                      style={{
+                        padding: "10px",
+                        backgroundColor: "#10b981",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      ➕
                     </button>
                   </form>
                   <div
                     style={{
                       display: "flex",
-                      flexWrap: "wrap",
+                      flexDirection: "column",
                       gap: "6px",
-                      maxHeight: "100px",
+                      maxHeight: "150px",
                       overflowY: "auto",
-                      backgroundColor: "#111827",
-                      padding: "6px",
-                      borderRadius: "6px",
                     }}
                   >
-                    {jugadorasDelEquipo.map((jug) => (
-                      <span
-                        key={jug}
+                    {botonesDinamicos.map((btn, idx) => (
+                      <div
+                        key={btn.id}
                         style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: "4px",
-                          backgroundColor: "#374151",
-                          padding: "3px 6px",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          backgroundColor: "#1f2937",
+                          padding: "6px",
                           borderRadius: "4px",
-                          fontSize: "11px",
+                          borderLeft: `4px solid ${btn.color}`,
                         }}
                       >
-                        {jug}{" "}
-                        <button
-                          type="button"
-                          onClick={() => eliminarJugadoraIndividual(jug)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#ef4444",
-                            cursor: "pointer",
-                            padding: 0,
-                          }}
-                        >
-                          ❌
-                        </button>
-                      </span>
+                        <span style={{ fontSize: "13px" }}>
+                          {btn.nombre} {btn.esGol && "⭐"}
+                        </span>
+                        <div style={{ display: "flex", gap: "3px" }}>
+                          <button
+                            type="button"
+                            onClick={() => moverOrdenBoton(idx, "subir")}
+                            disabled={idx === 0}
+                          >
+                            🔼
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moverOrdenBoton(idx, "bajar")}
+                            disabled={idx === botonesDinamicos.length - 1}
+                          >
+                            🔽
+                          </button>
+                          {!btn.esGol && (
+                            <button
+                              type="button"
+                              onClick={() => eliminarBotonDinamico(btn.id)}
+                              style={{ color: "#f87171" }}
+                            >
+                              ❌
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     ))}
                   </div>
-                </>
+                </div>
               )}
             </div>
           )}
 
-          {/* CONFIGURACIÓN DEL PARTIDO */}
+          {/* NUEVO PARTIDO */}
           <div
             style={{
               backgroundColor: "#1f2937",
@@ -1711,293 +1435,107 @@ export default function App() {
               border: "1px solid #374151",
             }}
           >
-            <h2
-              style={{
-                textAlign: "center",
-                color: "#60a5fa",
-                marginTop: 0,
-                marginBottom: "16px",
-              }}
-            >
-              🏑 NUEVO PARTIDO
+            <h2 style={{ textAlign: "center", color: "#60a5fa", marginTop: 0 }}>
+              🏑 CONFIGURAR PARTIDO
             </h2>
             <form
               onSubmit={comenzarPartidoEnBaseDeDatos}
-              style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
             >
-              <div>
-                <label
-                  style={{
-                    display: "block",
-                    marginBottom: "4px",
-                    fontSize: "14px",
-                    fontWeight: "bold",
-                  }}
-                >
-                  Categoría a Dirigir:
-                </label>
-                <select
-                  value={equipoSeleccionado}
-                  onChange={(e) => manejarCambioEquipo(e.target.value)}
-                  style={estiloInput as any}
-                >
-                  {listaEquipos.length === 0 && (
-                    <option>No tenés categorías autorizadas.</option>
-                  )}
-                  {listaEquipos.map((eq) => (
-                    <option key={eq.id} value={eq.id}>
-                      {eq.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {listaEquipos.length > 0 && (
-                <>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "10px",
-                    }}
-                  >
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "4px",
-                          fontSize: "14px",
-                        }}
-                      >
-                        Rival:
-                      </label>
-                      <input
-                        type="text"
-                        value={rival}
-                        onChange={(e) => setRival(e.target.value)}
-                        placeholder="Ej: Rowing"
-                        style={estiloInput as any}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label
-                        style={{
-                          display: "block",
-                          marginBottom: "4px",
-                          fontSize: "14px",
-                        }}
-                      >
-                        Cancha:
-                      </label>
-                      <input
-                        type="text"
-                        value={cancha}
-                        onChange={(e) => setCancha(e.target.value)}
-                        placeholder="Ej: Agua"
-                        style={estiloInput as any}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label
-                      style={{
-                        display: "block",
-                        marginBottom: "4px",
-                        fontSize: "14px",
-                      }}
-                    >
-                      Fecha:
-                    </label>
-                    <input
-                      type="date"
-                      value={fecha}
-                      onChange={(e) => setFecha(e.target.value)}
-                      style={estiloInput as any}
-                    />
-                  </div>
-
-                  <h3
-                    style={{
-                      borderBottom: "1px solid #374151",
-                      paddingBottom: "6px",
-                      color: "#9ca3af",
-                      marginBottom: "4px",
-                      fontSize: "14px",
-                    }}
-                  >
-                    📋 Convocadas ({titulares.length} Tit. / {suplentes.length}{" "}
-                    Sup.)
-                  </h3>
-                  <div
-                    style={{
-                      maxHeight: "150px",
-                      overflowY: "auto",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "6px",
-                    }}
-                  >
-                    {jugadorasDelEquipo.length === 0 ? (
-                      <div
-                        style={{
-                          fontSize: "13px",
-                          color: "#9ca3af",
-                          textAlign: "center",
-                        }}
-                      >
-                        No hay jugadoras cargadas en este plantel.
-                      </div>
-                    ) : (
-                      jugadorasDelEquipo.map((j) => {
-                        const esT = titulares.includes(j);
-                        const esS = suplentes.includes(j);
-                        return (
-                          <div
-                            key={j}
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                              backgroundColor: "#2d3748",
-                              padding: "6px 8px",
-                              borderRadius: "6px",
-                            }}
-                          >
-                            <span style={{ fontSize: "13px" }}>{j}</span>
-                            <div style={{ display: "flex", gap: "4px" }}>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  asignarRol(j, esT ? "ninguno" : "titular")
-                                }
-                                style={{
-                                  padding: "3px 6px",
-                                  borderRadius: "4px",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  fontWeight: "bold",
-                                  backgroundColor: esT ? "#15803d" : "#4b5563",
-                                  color: "white",
-                                  fontSize: "11px",
-                                }}
-                              >
-                                Titular
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  asignarRol(j, esS ? "ninguno" : "suplente")
-                                }
-                                style={{
-                                  padding: "3px 6px",
-                                  borderRadius: "4px",
-                                  border: "none",
-                                  cursor: "pointer",
-                                  fontWeight: "bold",
-                                  backgroundColor: esS ? "#b45309" : "#4b5563",
-                                  color: "white",
-                                  fontSize: "11px",
-                                }}
-                              >
-                                Suplente
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                  <button
-                    type="submit"
-                    style={{
-                      marginTop: "6px",
-                      padding: "14px",
-                      borderRadius: "8px",
-                      border: "none",
-                      backgroundColor: "#2563eb",
-                      color: "white",
-                      fontWeight: "bold",
-                      fontSize: "16px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    🚀 INICIAR ANALISIS EN VIVO
-                  </button>
-                </>
-              )}
+              <select
+                value={equipoSeleccionado}
+                onChange={(e) => manejarCambioEquipo(e.target.value)}
+                style={estiloInput as any}
+              >
+                {listaEquipos.map((eq) => (
+                  <option key={eq.id} value={eq.id}>
+                    {eq.nombre}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={rival}
+                onChange={(e) => setRival(e.target.value)}
+                placeholder="Nombre del Rival"
+                style={estiloInput as any}
+                required
+              />
+              <button
+                type="submit"
+                style={{
+                  padding: "14px",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#2563eb",
+                  color: "white",
+                  fontWeight: "bold",
+                  fontSize: "16px",
+                }}
+              >
+                🚀 EMPEZAR PARTIDO
+              </button>
             </form>
           </div>
         </div>
       ) : (
-        /* ---------------- MODO JUEGO COLABORATIVO ADAPTATIVO ---------------- */
+        /* ---------------- MODO JUEGO ACTIVO ---------------- */
         <div>
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              gap: "10px",
-              marginBottom: "16px",
-              paddingBottom: "10px",
-              borderBottom: "1px solid #374151",
+              marginBottom: "14px",
             }}
           >
             <button
               onClick={finalizarPartido}
               style={{
-                padding: "8px 14px",
+                padding: "8px 12px",
                 borderRadius: "8px",
-                border: "none",
-                cursor: "pointer",
-                fontWeight: "bold",
                 backgroundColor: "#dc2626",
                 color: "white",
-                fontSize: "13px",
+                border: "none",
+                fontWeight: "bold",
               }}
             >
-              🚩 Cerrar Mesa
+              🚩 Salir de Mesa
             </button>
-            <div style={{ display: "flex", gap: "10px" }}>
+            <div style={{ display: "flex", gap: "6px" }}>
               <button
                 onClick={() => setVista("telefono")}
                 style={{
-                  padding: "8px 16px",
-                  borderRadius: "20px",
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: "bold",
+                  padding: "6px 12px",
+                  borderRadius: "12px",
                   backgroundColor: vista === "telefono" ? "#6366f1" : "#374151",
                   color: "white",
-                  fontSize: "13px",
+                  border: "none",
                 }}
               >
-                📲 Celular
+                📲 Cel
               </button>
               <button
                 onClick={() => setVista("computadora")}
                 style={{
-                  padding: "8px 16px",
-                  borderRadius: "20px",
-                  border: "none",
-                  cursor: "pointer",
-                  fontWeight: "bold",
+                  padding: "6px 12px",
+                  borderRadius: "12px",
                   backgroundColor:
                     vista === "computadora" ? "#6366f1" : "#374151",
                   color: "white",
-                  fontSize: "13px",
+                  border: "none",
                 }}
               >
-                💻 Computadora
+                💻 PC
               </button>
             </div>
           </div>
 
-          {/* VISTA MOVIL CON RE-TAMAÑO AUTO (GRID FLEXIBLE) */}
+          {/* VISTA MÓVIL */}
           {vista === "telefono" && (
             <div
               style={{
-                maxWidth: "480px",
+                maxWidth: "460px",
                 margin: "0 auto",
                 display: "flex",
                 flexDirection: "column",
@@ -2009,22 +1547,89 @@ export default function App() {
                   backgroundColor: "#1f2937",
                   padding: "12px",
                   borderRadius: "12px",
-                  textAlign: "center",
                   border: "1px solid #374151",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "8px",
                 }}
               >
+                {/* 📊 MARCADOR MINI JUNTO AL TIEMPO */}
+                <div
+                  style={{
+                    display: "flex",
+                    gap: "24px",
+                    alignItems: "center",
+                    backgroundColor: "#111827",
+                    padding: "6px 20px",
+                    borderRadius: "30px",
+                    border: "1px solid #4b5563",
+                  }}
+                >
+                  <div style={{ textAlign: "center" }}>
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "#60a5fa",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      CAT
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "24px",
+                        fontFamily: "monospace",
+                        fontWeight: "black",
+                        color: "#f3f4f6",
+                      }}
+                    >
+                      {calcularTotal("goles_favor")}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "14px",
+                      color: "#4b5563",
+                      fontWeight: "bold",
+                    }}
+                  >
+                    VS
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <div
+                      style={{
+                        fontSize: "10px",
+                        color: "#ef4444",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      RIVAL
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "24px",
+                        fontFamily: "monospace",
+                        fontWeight: "black",
+                        color: "#f3f4f6",
+                      }}
+                    >
+                      {calcularTotal("goles_contra")}
+                    </div>
+                  </div>
+                </div>
+
                 <div
                   style={{
                     fontSize: "42px",
                     fontFamily: "monospace",
                     fontWeight: "bold",
                     color: "#10b981",
-                    marginBottom: "4px",
                   }}
                 >
                   {formatearTiempo(segundos)}
                 </div>
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ display: "flex", gap: "8px", width: "100%" }}>
                   <button
                     onClick={() => setCorriendo(!corriendo)}
                     style={{
@@ -2033,12 +1638,11 @@ export default function App() {
                       borderRadius: "8px",
                       border: "none",
                       fontWeight: "bold",
-                      cursor: "pointer",
                       backgroundColor: corriendo ? "#e11d48" : "#2563eb",
                       color: "white",
                     }}
                   >
-                    {corriendo ? "⏸️ PAUSAR" : "▶️ INICIAR"}
+                    {corriendo ? "⏸️ PAUSA" : "▶️ PLAY"}
                   </button>
                   <button
                     onClick={() => setSegundos(0)}
@@ -2047,8 +1651,6 @@ export default function App() {
                       padding: "10px",
                       borderRadius: "8px",
                       border: "none",
-                      fontWeight: "bold",
-                      cursor: "pointer",
                       backgroundColor: "#4b5563",
                       color: "white",
                     }}
@@ -2058,14 +1660,12 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Selector de Cuartos */}
               <div
                 style={{
                   display: "grid",
                   gridTemplateColumns: "repeat(4, 1fr)",
                   gap: "6px",
-                  backgroundColor: "#1f2937",
-                  padding: "6px",
-                  borderRadius: "8px",
                 }}
               >
                 {["1Q", "2Q", "3Q", "4Q"].map((q) => (
@@ -2081,11 +1681,9 @@ export default function App() {
                       fontWeight: "bold",
                       border: "none",
                       borderRadius: "6px",
-                      cursor: "pointer",
                       backgroundColor:
                         cuartoActual === q ? "#2563eb" : "#374151",
                       color: "white",
-                      fontSize: "12px",
                     }}
                   >
                     {q}
@@ -2093,37 +1691,136 @@ export default function App() {
                 ))}
               </div>
 
-              {/* GRILLA CON ADAPTACIÓN DE TAMAÑO SEGÚN CANTIDAD DE ELEMENTOS */}
+              {/* Grilla de Botones adaptativa */}
               <div
                 style={{
                   display: "grid",
-                  // Si hay pocos botones se hacen más grandes, si hay muchos se organizan solos en columnas equilibradas
-                  gridTemplateColumns:
-                    botonesDinamicos.length <= 4 ? "1fr" : "1fr 1fr",
+                  gridTemplateColumns: "1fr 1fr",
                   gap: "12px",
-                  width: "100%",
                 }}
               >
                 {botonesDinamicos.map((btn) => (
                   <ComponenteBotonDinamico key={btn.id} objetoBoton={btn} />
                 ))}
               </div>
-              <p
-                style={{
-                  textTransform: "uppercase",
-                  fontSize: "10px",
-                  textAlign: "center",
-                  color: "#94a3b8",
-                  margin: "4px 0 0 0",
-                }}
-              >
-                💡 Tip: Mantené presionado cualquier botón para restar un evento
-                por error.
-              </p>
             </div>
           )}
 
-          {/* VISTA ESCRITORIO O AUDITORÍA */}
+          {/* 🚨 SUBMENÚ FLOTANTE PARA EL GOL */}
+          {mostrarSubmenuGol && (
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                width: "100vw",
+                height: "100vh",
+                backgroundColor: "rgba(0,0,0,0.8)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 9999,
+                padding: "16px",
+                boxSizing: "border-box",
+              }}
+            >
+              <div
+                style={{
+                  backgroundColor: "#1f2937",
+                  padding: "24px",
+                  borderRadius: "16px",
+                  width: "100%",
+                  maxWidth: "360px",
+                  border: "2px solid #d97706",
+                  textAlign: "center",
+                  boxShadow: "0 25px 50px -12px rgba(0,0,0,0.7)",
+                }}
+              >
+                <h3
+                  style={{
+                    marginTop: 0,
+                    color: "#fbbf24",
+                    fontSize: "20px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  ⚽ ¡REGISTRAR GOL!
+                </h3>
+                <p
+                  style={{
+                    color: "#9ca3af",
+                    fontSize: "13px",
+                    marginTop: 0,
+                    marginBottom: "20px",
+                  }}
+                >
+                  Seleccioná el tipo de conversión para el cuarto {cuartoActual}
+                </p>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "12px",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      manejarSuma("goles_favor");
+                      setMostrarSubmenuGol(false);
+                    }}
+                    style={{
+                      padding: "16px",
+                      borderRadius: "8px",
+                      border: "none",
+                      backgroundColor: "#16a34a",
+                      color: "white",
+                      fontWeight: "bold",
+                      fontSize: "16px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    🟢 GOL A FAVOR (Talleres)
+                  </button>
+                  <button
+                    onClick={() => {
+                      manejarSuma("goles_contra");
+                      setMostrarSubmenuGol(false);
+                    }}
+                    style={{
+                      padding: "16px",
+                      borderRadius: "8px",
+                      border: "none",
+                      backgroundColor: "#dc2626",
+                      color: "white",
+                      fontWeight: "bold",
+                      fontSize: "16px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    🔴 GOL EN CONTRA (Rival)
+                  </button>
+                  <button
+                    onClick={() => setMostrarSubmenuGol(false)}
+                    style={{
+                      padding: "10px",
+                      borderRadius: "8px",
+                      border: "none",
+                      backgroundColor: "#4b5563",
+                      color: "#d1d5db",
+                      fontSize: "14px",
+                      cursor: "pointer",
+                      marginTop: "6px",
+                    }}
+                  >
+                    ❌ Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* VISTA ESCRITORIO */}
           {vista === "computadora" && (
             <div style={{ maxWidth: "950px", margin: "0 auto" }}>
               <div
@@ -2142,56 +1839,45 @@ export default function App() {
                     border: "none",
                     borderRadius: "8px",
                     fontWeight: "bold",
-                    cursor: "pointer",
                   }}
                 >
-                  📥 Exportar Planilla (.xlsx)
+                  📥 Excel (.xlsx)
                 </button>
               </div>
-
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(4, 1fr)",
-                  gap: "10px",
                   backgroundColor: "#1f2937",
                   padding: "14px",
                   borderRadius: "8px",
                   marginBottom: "14px",
-                  fontSize: "13px",
+                  display: "flex",
+                  gap: "20px",
                 }}
               >
-                <div>
-                  <strong>Club:</strong> Talleres de Paraná
-                </div>
                 <div>
                   <strong>Rival:</strong> {rival}
                 </div>
                 <div>
-                  <strong>Fecha:</strong> {fecha}
+                  <strong>Goles CAT:</strong> {calcularTotal("goles_favor")}
                 </div>
                 <div>
-                  <strong>Cancha:</strong> {cancha || "No definida"}
+                  <strong>Goles Rival:</strong> {calcularTotal("goles_contra")}
                 </div>
               </div>
-
               <table
                 style={{
                   width: "100%",
                   borderCollapse: "collapse",
                   backgroundColor: "#1f2937",
-                  fontSize: "14px",
                 }}
               >
                 <thead>
                   <tr>
-                    <th style={estiloCeldaTh as any}>
-                      Métrica / Evento Personalizado
-                    </th>
-                    <th style={estiloCeldaTh as any}>1° Cuarto</th>
-                    <th style={estiloCeldaTh as any}>2° Cuarto</th>
-                    <th style={estiloCeldaTh as any}>3° Cuarto</th>
-                    <th style={estiloCeldaTh as any}>4° Cuarto</th>
+                    <th style={estiloCeldaTh as any}>Métrica</th>
+                    <th style={estiloCeldaTh as any}>1Q</th>
+                    <th style={estiloCeldaTh as any}>2Q</th>
+                    <th style={estiloCeldaTh as any}>3Q</th>
+                    <th style={estiloCeldaTh as any}>4Q</th>
                     <th
                       style={
                         { ...estiloCeldaTh, backgroundColor: "#2563eb" } as any
@@ -2202,45 +1888,80 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {botonesDinamicos.map((btn) => (
-                    <tr key={btn.id}>
-                      <td
-                        style={
-                          {
-                            ...estiloCeldaTd,
-                            textAlign: "left",
-                            fontWeight: "bold",
-                            borderLeft: `5px solid ${btn.color}`,
-                          } as any
-                        }
-                      >
-                        {btn.nombre}
-                      </td>
-                      <td style={estiloCeldaTd as any}>
-                        {estadisticas["1Q"]?.[btn.id] || 0}
-                      </td>
-                      <td style={estiloCeldaTd as any}>
-                        {estadisticas["2Q"]?.[btn.id] || 0}
-                      </td>
-                      <td style={estiloCeldaTd as any}>
-                        {estadisticas["3Q"]?.[btn.id] || 0}
-                      </td>
-                      <td style={estiloCeldaTd as any}>
-                        {estadisticas["4Q"]?.[btn.id] || 0}
-                      </td>
-                      <td
-                        style={
-                          {
-                            ...estiloCeldaTd,
-                            fontWeight: "bold",
+                  <tr style={{ backgroundColor: "#065f46" }}>
+                    <td
+                      style={
+                        {
+                          ...estiloCeldaTd,
+                          textAlign: "left",
+                          fontWeight: "bold",
+                        } as any
+                      }
+                    >
+                      ⚽ Goles a Favor (CAT)
+                    </td>
+                    <td>{estadisticas["1Q"]?.["goles_favor"] || 0}</td>
+                    <td>{estadisticas["2Q"]?.["goles_favor"] || 0}</td>
+                    <td>{estadisticas["3Q"]?.["goles_favor"] || 0}</td>
+                    <td>{estadisticas["4Q"]?.["goles_favor"] || 0}</td>
+                    <td
+                      style={{ backgroundColor: "#047857", fontWeight: "bold" }}
+                    >
+                      {calcularTotal("goles_favor")}
+                    </td>
+                  </tr>
+                  <tr style={{ backgroundColor: "#7f1d1d" }}>
+                    <td
+                      style={
+                        {
+                          ...estiloCeldaTd,
+                          textAlign: "left",
+                          fontWeight: "bold",
+                        } as any
+                      }
+                    >
+                      ⚽ Goles en Contra (Rival)
+                    </td>
+                    <td>{estadisticas["1Q"]?.["goles_contra"] || 0}</td>
+                    <td>{estadisticas["2Q"]?.["goles_contra"] || 0}</td>
+                    <td>{estadisticas["3Q"]?.["goles_contra"] || 0}</td>
+                    <td>{estadisticas["4Q"]?.["goles_contra"] || 0}</td>
+                    <td
+                      style={{ backgroundColor: "#b91c1c", fontWeight: "bold" }}
+                    >
+                      {calcularTotal("goles_contra")}
+                    </td>
+                  </tr>
+                  {botonesDinamicos
+                    .filter((b) => !b.esGol)
+                    .map((btn) => (
+                      <tr key={btn.id}>
+                        <td
+                          style={
+                            {
+                              ...estiloCeldaTd,
+                              textAlign: "left",
+                              fontWeight: "bold",
+                              borderLeft: `5px solid ${btn.color}`,
+                            } as any
+                          }
+                        >
+                          {btn.nombre}
+                        </td>
+                        <td>{estadisticas["1Q"]?.[btn.id] || 0}</td>
+                        <td>{estadisticas["2Q"]?.[btn.id] || 0}</td>
+                        <td>{estadisticas["3Q"]?.[btn.id] || 0}</td>
+                        <td>{estadisticas["4Q"]?.[btn.id] || 0}</td>
+                        <td
+                          style={{
                             backgroundColor: "#1e3a8a",
-                          } as any
-                        }
-                      >
-                        {calcularTotal(btn.id)}
-                      </td>
-                    </tr>
-                  ))}
+                            fontWeight: "bold",
+                          }}
+                        >
+                          {calcularTotal(btn.id)}
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
