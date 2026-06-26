@@ -29,7 +29,7 @@ const PALETA_COLORES = [
   { nombre: "Amarillo Alerta", hex: "#b45309" },
   { nombre: "Negro", hex: "#1f2937" },
   { nombre: "Morado Especial", hex: "#6b21a8" },
-  { font: "Gris Neutro", hex: "#4b5563" },
+  { nombre: "Gris Neutro", hex: "#4b5563" },
 ];
 
 // Estructura base por si el profe no configuró nada todavía
@@ -549,7 +549,7 @@ export default function App() {
   };
 
   const reingresarAPartido = (p: any) => {
-    setIdPartido(p.id);
+    setIdPartido(p.id || p.id_partido);
     setRival(p.rival);
     setCancha(p.cancha || "");
     setFecha(p.fecha);
@@ -699,6 +699,102 @@ export default function App() {
     }
   };
 
+  // --- RESGUARDO SI NO HAY SESIÓN INICIADA ---
+  if (!usuario) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          fontFamily: "sans-serif",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: "16px",
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "#1f2937",
+            padding: "24px",
+            borderRadius: "12px",
+            border: "1px solid #374151",
+            width: "100%",
+            maxWidth: "400px",
+          }}
+        >
+          <h2 style={{ textAlign: "center", color: "#3b82f6", marginTop: 0 }}>
+            🏑 MESA DE CONTROL
+          </h2>
+          <form
+            onSubmit={manejarAuth}
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+          >
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email del Profe"
+              style={estiloInput as any}
+              required
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Contraseña"
+              style={estiloInput as any}
+              required
+            />
+            {errorAuth && (
+              <div
+                style={{
+                  color: "#ef4444",
+                  fontSize: "13px",
+                  textAlign: "center",
+                }}
+              >
+                {errorAuth}
+              </div>
+            )}
+            <button
+              type="submit"
+              style={{
+                padding: "12px",
+                backgroundColor: "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: "6px",
+                fontWeight: "bold",
+                cursor: "pointer",
+              }}
+            >
+              {esRegistro ? "Registrar Cuenta" : "Iniciar Sesión"}
+            </button>
+          </form>
+          <button
+            onClick={() => setEsRegistro(!esRegistro)}
+            style={{
+              width: "100%",
+              background: "none",
+              border: "none",
+              color: "#9ca3af",
+              fontSize: "12px",
+              marginTop: "12px",
+              cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            {esRegistro
+              ? "¿Ya tenés cuenta? Logueate"
+              : "¿No tenés cuenta? Registrate"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -825,7 +921,7 @@ export default function App() {
                           border: "1px solid #475569",
                           borderRadius: "8px",
                           color: "white",
-                          textAlignment: "left",
+                          textAlign: "left",
                           display: "flex",
                           justifyContent: "space-between",
                         }}
@@ -892,7 +988,8 @@ export default function App() {
                       <button
                         onClick={() =>
                           eliminarPartidoHistorial(
-                            partidoHistorialSeleccionado.id
+                            partidoHistorialSeleccionado.id ||
+                              partidoHistorialSeleccionado.id_partido
                           )
                         }
                         style={{
@@ -1486,7 +1583,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* 📋 LISTA DE SELECCIÓN DE TITULARES / SUPLENTES REPARADA */}
                   <h3
                     style={{
                       borderBottom: "1px solid #4b5563",
@@ -1664,7 +1760,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* VISTA MÓVIL */}
+          {/* VISTA MÓVIL REPARADA */}
           {vista === "telefono" && (
             <div
               style={{
@@ -1712,7 +1808,7 @@ export default function App() {
                       style={{
                         fontSize: "24px",
                         fontFamily: "monospace",
-                        fontWeight: "black",
+                        fontWeight: "bold",
                         color: "#f3f4f6",
                       }}
                     >
@@ -1742,7 +1838,7 @@ export default function App() {
                       style={{
                         fontSize: "24px",
                         fontFamily: "monospace",
-                        fontWeight: "black",
+                        fontWeight: "bold",
                         color: "#f3f4f6",
                       }}
                     >
@@ -1772,6 +1868,7 @@ export default function App() {
                       fontWeight: "bold",
                       backgroundColor: corriendo ? "#e11d48" : "#2563eb",
                       color: "white",
+                      cursor: "pointer",
                     }}
                   >
                     {corriendo ? "⏸️ PAUSA" : "▶️ PLAY"}
@@ -1785,6 +1882,7 @@ export default function App() {
                       border: "none",
                       backgroundColor: "#4b5563",
                       color: "white",
+                      cursor: "pointer",
                     }}
                   >
                     🔄 Reset
@@ -1815,6 +1913,7 @@ export default function App() {
                       backgroundColor:
                         cuartoActual === q ? "#2563eb" : "#374151",
                       color: "white",
+                      cursor: "pointer",
                     }}
                   >
                     {q}
@@ -1822,6 +1921,7 @@ export default function App() {
                 ))}
               </div>
 
+              {/* RENDERIZADO INLINE DE LOS BOTONES DINÁMICOS PARA EVITAR ERROR DE REFERENCIA */}
               <div
                 style={{
                   display: "grid",
@@ -1829,9 +1929,82 @@ export default function App() {
                   gap: "12px",
                 }}
               >
-                {botonesDinamicos.map((btn) => (
-                  <ComponenteBotonDinamico key={btn.id} objetoBoton={btn} />
-                ))}
+                {botonesDinamicos.map((btn) => {
+                  const valor = estadisticas[cuartoActual]?.[btn.id] || 0;
+                  if (btn.esGol) {
+                    return (
+                      <button
+                        key={btn.id}
+                        onClick={() => setMostrarSubmenuGol(true)}
+                        style={{
+                          padding: "20px 10px",
+                          borderRadius: "10px",
+                          border: "none",
+                          color: "white",
+                          fontWeight: "bold",
+                          fontSize: "16px",
+                          cursor: "pointer",
+                          backgroundColor: btn.color,
+                          boxShadow: "0 4px 6px rgba(0,0,0,0.3)",
+                        }}
+                      >
+                        {btn.nombre}
+                      </button>
+                    );
+                  }
+                  return (
+                    <div
+                      key={btn.id}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        backgroundColor: "#1f2937",
+                        borderRadius: "10px",
+                        overflow: "hidden",
+                        border: "1px solid #374151",
+                      }}
+                    >
+                      <button
+                        onClick={() => manejarSuma(btn.id)}
+                        style={{
+                          flex: 1,
+                          padding: "18px 10px",
+                          border: "none",
+                          color: "white",
+                          fontWeight: "bold",
+                          fontSize: "15px",
+                          cursor: "pointer",
+                          backgroundColor: btn.color,
+                        }}
+                      >
+                        {btn.nombre}
+                        <div
+                          style={{
+                            fontSize: "24px",
+                            fontFamily: "monospace",
+                            marginTop: "4px",
+                          }}
+                        >
+                          {valor}
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => manejarResta(btn.id)}
+                        style={{
+                          padding: "6px",
+                          backgroundColor: "#374151",
+                          color: "#9ca3af",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          borderTop: "1px solid #4b5563",
+                        }}
+                      >
+                        Meno s (-)
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1889,6 +2062,7 @@ export default function App() {
                       backgroundColor: "#16a34a",
                       color: "white",
                       fontWeight: "bold",
+                      cursor: "pointer",
                     }}
                   >
                     🟢 GOL A FAVOR
@@ -1905,6 +2079,7 @@ export default function App() {
                       backgroundColor: "#dc2626",
                       color: "white",
                       fontWeight: "bold",
+                      cursor: "pointer",
                     }}
                   >
                     🔴 GOL EN CONTRA
@@ -1917,6 +2092,7 @@ export default function App() {
                       color: "#d1d5db",
                       border: "none",
                       borderRadius: "8px",
+                      cursor: "pointer",
                     }}
                   >
                     ❌ Cancelar
@@ -1944,6 +2120,7 @@ export default function App() {
                     color: "white",
                     border: "none",
                     borderRadius: "8px",
+                    cursor: "pointer",
                   }}
                 >
                   📥 Excel (.xlsx)
@@ -2057,7 +2234,7 @@ export default function App() {
   );
 }
 
-// Estilos globales de fallback para los componentes dinámicos
+// Estilos globales de fallback
 const estiloInput = {
   width: "100%",
   padding: "10px",
