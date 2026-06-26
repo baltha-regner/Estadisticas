@@ -515,7 +515,6 @@ export default function App() {
     guardarBotonesEnFirestore(nuevaLista.map((b, i) => ({ ...b, orden: i })));
   };
 
-  // --- REGISTRO E INICIO DE PARTIDOS EXPLICITO ---
   const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
@@ -640,6 +639,54 @@ export default function App() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  // 🔥 RESTAURADO: Definición explícita de obtenerEstadisticasAcumuladas para evitar pantalla negra
+  const obtenerEstadisticasAcumuladas = () => {
+    const partidosCategoria = listaPartidosViejos.filter(
+      (p) => p.id_categoria === equipoSeleccionado
+    );
+    const totalPartidos = partidosCategoria.length;
+
+    const iniciales: any = {
+      partidosTotales: totalPartidos,
+      totales: {},
+      promedios: {},
+      porCuarto: { "1Q": 0, "2Q": 0, "3Q": 0, "4Q": 0 },
+    };
+    if (totalPartidos === 0) return iniciales;
+
+    partidosCategoria.forEach((partido) => {
+      ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
+        const statsQ = partido.estadisticas?.[q] || {};
+        Object.keys(statsQ).forEach((key) => {
+          iniciales.totales[key] =
+            (iniciales.totales[key] || 0) + (statsQ[key] || 0);
+          if (
+            key.includes("favor") ||
+            key === "ingresos_area_favor" ||
+            key === "tiros_favor"
+          ) {
+            iniciales.porCuarto[q] =
+              (iniciales.porCuarto[q] || 0) + (statsQ[key] || 0);
+          }
+        });
+        iniciales.totales["goles_favor"] =
+          (iniciales.totales["goles_favor"] || 0) +
+          (statsQ["goles_favor"] || 0);
+        iniciales.totales["goles_contra"] =
+          (iniciales.totales["goles_contra"] || 0) +
+          (statsQ["goles_contra"] || 0);
+      });
+    });
+
+    Object.keys(iniciales.totales).forEach((key) => {
+      iniciales.promedios[key] = Number(
+        (iniciales.totales[key] / totalPartidos).toFixed(1)
+      );
+    });
+
+    return iniciales;
   };
 
   const exportarAExcel = async (partidoEspecifico: any = null) => {
@@ -2610,7 +2657,7 @@ export default function App() {
             </div>
           )}
 
-          {/* DESGLOSE SUBETIQUETAS */}
+          {/* FLOTANTE SUBETIQUETAS */}
           {botonActivoSubmenu && (
             <div
               style={{
