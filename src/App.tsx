@@ -116,6 +116,13 @@ export default function App() {
   const [jugadoraEditando, setJugadoraEditando] = useState<string | null>(null);
   const [nuevoNombreEditado, setNuevoNombreEditado] = useState<string>("");
 
+  // Estados para la edición e individualización de botones
+  const [botonEditandoNombre, setBotonEditandoNombre] = useState<string | null>(
+    null
+  );
+  const [nuevoNombreBotonEditado, setNuevoNombreBotonEditado] =
+    useState<string>("");
+
   const [nuevoBtnNombre, setNuevoBtnNombre] = useState<string>("");
   const [nuevoBtnColor, setNuevoBtnColor] = useState<string>("#4b5563");
 
@@ -334,6 +341,7 @@ export default function App() {
     }
   };
 
+  // --- ENGINE DE REGISTRO CON DESGLOSE DE SUBETIQUETAS ---
   const manejarSumaMétrica = async (
     metricaId: string,
     subetiquetaNombre?: string
@@ -411,8 +419,6 @@ export default function App() {
   };
 
   const guardarBotonesEnFirestore = async (nuevosBotones: any[]) => {
-    if (perfilUsuario?.rol !== "admin")
-      return alert("Solo el administrador puede modificar la botonera.");
     if (!equipoSeleccionado) return;
     try {
       await updateDoc(doc(db, "equipos_club", equipoSeleccionado), {
@@ -424,17 +430,23 @@ export default function App() {
     }
   };
 
+  // --- MODIFICACIÓN DINÁMICA DE NOMBRE DE BOTÓN ---
+  const modificarNombreBoton_Confirmar = (btnId: string) => {
+    if (!nuevoNombreBotonEditado.trim()) return;
+    const listaActualizada = botonesDinamicos.map((b) =>
+      b.id === btnId ? { ...b, nombre: nuevoNombreBotonEditado.trim() } : b
+    );
+    guardarBotonesEnFirestore(listaActualizada);
+    setBotonEditandoNombre(null);
+    setNuevoNombreBotonEditado("");
+  };
+
   const agregarSubetiquetaA_Boton = (btnId: string) => {
-    if (perfilUsuario?.rol !== "admin") return;
     const texto = textoNuevaSubetiqueta[btnId]?.trim();
     if (!texto) return;
     const listAc = botonesDinamicos.map((b) =>
       b.id === btnId
-        ? {
-            ...b,
-            subetiquetas: [...(b.subetiquetas || []), text],
-            subetiquetas: [...(b.subetiquetas || []), texto],
-          }
+        ? { ...b, subetiquetas: [...(b.subetiquetas || []), texto] }
         : b
     );
     guardarBotonesEnFirestore(listAc);
@@ -442,7 +454,6 @@ export default function App() {
   };
 
   const eliminarSubetiquetaDe_Boton = (btnId: string, subNombre: string) => {
-    if (perfilUsuario?.rol !== "admin") return;
     const listAc = botonesDinamicos.map((b) =>
       b.id === btnId
         ? {
@@ -458,7 +469,6 @@ export default function App() {
 
   const agregarNuevoBoton = (e: React.FormEvent) => {
     e.preventDefault();
-    if (perfilUsuario?.rol !== "admin") return;
     if (!nuevoBtnNombre.trim()) return;
     const idSugerido =
       "btn_" +
@@ -479,7 +489,6 @@ export default function App() {
   };
 
   const eliminarBotonDinamico = (idBtn: string) => {
-    if (perfilUsuario?.rol !== "admin") return;
     if (!window.confirm("¿Querés eliminar esta métrica?")) return;
     guardarBotonesEnFirestore(
       botonesDinamicos
@@ -489,7 +498,6 @@ export default function App() {
   };
 
   const moverOrdenBoton = (index: number, direccion: "subir" | "bajar") => {
-    if (perfilUsuario?.rol !== "admin") return;
     if (direccion === "subir" && index === 0) return;
     if (direccion === "bajar" && index === botonesDinamicos.length - 1) return;
     const nuevaLista = [...botonesDinamicos];
@@ -548,7 +556,7 @@ export default function App() {
   const crearNuevoEquipo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (perfilUsuario?.rol !== "admin")
-      return alert("Solo el administrador puede crear categorías.");
+      return alert("Solo el administrador puede crear categorías de raíz.");
     if (!nuevoNombreEquipo.trim()) return;
     const idSugerido = nuevoNombreEquipo.toLowerCase().replace(/ /g, "_");
     try {
@@ -571,8 +579,6 @@ export default function App() {
 
   const agregarJugadorasAlEquipo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (perfilUsuario?.rol !== "admin")
-      return alert("Solo el administrador puede modificar las jugadoras.");
     if (!nuevasJugadorasTexto.trim() || !equipoSeleccionado) return;
     const nuevasJugadorasArr = nuevasJugadorasTexto
       .split(",")
@@ -591,7 +597,6 @@ export default function App() {
   };
 
   const modificarNombreJugadora = async (nombreViejo: string) => {
-    if (perfilUsuario?.rol !== "admin") return;
     if (!nuevoNombreEditado.trim() || !equipoSeleccionado) return;
     try {
       const nuevoArrayJugadoras = jugadorasDelEquipo.map((j) =>
@@ -609,7 +614,6 @@ export default function App() {
   };
 
   const eliminarJugadoraIndividual = async (nombreJugadora: string) => {
-    if (perfilUsuario?.rol !== "admin") return;
     if (!window.confirm(`¿Querés eliminar a ${nombreJugadora}?`)) return;
     try {
       const nuevoArray = jugadorasDelEquipo.filter((j) => j !== nombreJugadora);
@@ -638,7 +642,6 @@ export default function App() {
     }
   };
 
-  // --- COMPILACIÓN CORRECTA DE INICIO DE PARTIDO ---
   const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
@@ -936,9 +939,6 @@ export default function App() {
         pTarget.categoria ||
         listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
         "Categoría";
-      const catFormateada = nombreCategoria.replace(/ /g, "_");
-      const rivalFormateado = (pTarget.rival || "Rival").replace(/ /g, "_");
-
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -946,8 +946,9 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-
-      link.download = `Planilla_${catFormateada}_${pTarget.fecha}_vs_${rivalFormateado}.xlsx`;
+      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
+        pTarget.fecha
+      }_vs_${(pTarget.rival || "Rival").replace(/ /g, "_")}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -956,148 +957,11 @@ export default function App() {
     }
   };
 
-  if (cargandoAuth) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <h2>🔄 Cargando Sistema de Estadísticas...</h2>
-      </div>
-    );
-  }
-
-  if (!usuario) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          fontFamily: "sans-serif",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "16px",
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "#1f2937",
-            padding: "28px",
-            borderRadius: "12px",
-            border: "1px solid #374151",
-            width: "100%",
-            maxWidth: "400px",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
-          }}
-        >
-          <h2
-            style={{
-              textAlign: "center",
-              color: "#60a5fa",
-              marginTop: 0,
-              marginBottom: "4px",
-            }}
-          >
-            🏑 CLUB TALLERES
-          </h2>
-          <p
-            style={{
-              textAlign: "center",
-              color: "#9ca3af",
-              fontSize: "13px",
-              marginTop: 0,
-              marginBottom: "20px",
-            }}
-          >
-            Estadísticas y Análisis de Partidos
-          </p>
-          <form
-            onSubmit={manejarLoginClub}
-            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
-          >
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "14px",
-                  color: "#d1d5db",
-                }}
-              >
-                Usuario / Entrenador:
-              </label>
-              <input
-                type="text"
-                value={identificadorProfe}
-                onChange={(e) => setIdentificadorProfe(e.target.value)}
-                placeholder="Ej: baltha o coordinador"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "14px",
-                  color: "#d1d5db",
-                }}
-              >
-                Contraseña del Club:
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="******"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            {errorAuth && (
-              <div
-                style={{
-                  color: "#ef4444",
-                  fontSize: "13px",
-                  textAlign: "center",
-                  fontWeight: "bold",
-                }}
-              >
-                ⚠️ {errorAuth}
-              </div>
-            )}
-            <button
-              type="submit"
-              style={{
-                padding: "12px",
-                backgroundColor: "#2563eb",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontWeight: "bold",
-                fontSize: "15px",
-                cursor: "pointer",
-              }}
-            >
-              🔑 Ingresar
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  const datosAcumulados = obtenerEstadisticasAcumuladas();
   const esAdmin = perfilUsuario?.rol === "admin";
+  const esCoordinador = perfilUsuario?.rol === "coordinador";
+  const puedeEditarBotoneraYPlantel =
+    esAdmin ||
+    perfilUsuario?.categoriasPermitidas?.includes(equipoSeleccionado);
 
   return (
     <div
@@ -1204,7 +1068,7 @@ export default function App() {
           {pestañaActiva === "partido" ? (
             <>
               <div style={{ display: "flex", gap: "8px" }}>
-                {esAdmin && (
+                {puedeEditarBotoneraYPlantel && (
                   <button
                     onClick={() => setModoAdmin(!modoAdmin)}
                     style={{
@@ -1218,7 +1082,9 @@ export default function App() {
                       cursor: "pointer",
                     }}
                   >
-                    {modoAdmin ? "❌ Cerrar Panel" : "⚙️ Configurar Plantel"}
+                    {modoAdmin
+                      ? "❌ Cerrar Ajustes"
+                      : "👥 Configurar Categoría"}
                   </button>
                 )}
                 <button
@@ -1479,8 +1345,8 @@ export default function App() {
                 </div>
               )}
 
-              {/* PANEL ADMIN PROTEGIDO */}
-              {modoAdmin && esAdmin && (
+              {/* PANEL ADMIN PROTEGIDO POR CATEGORÍA O SÚPER-ADMIN */}
+              {modoAdmin && puedeEditarBotoneraYPlantel && (
                 <div
                   style={{
                     backgroundColor: "#1e293b",
@@ -1492,126 +1358,33 @@ export default function App() {
                     gap: "14px",
                   }}
                 >
-                  <form
-                    onSubmit={crearNuevoEquipo}
-                    style={{ display: "flex", gap: "8px" }}
-                  >
-                    <input
-                      type="text"
-                      value={nuevoNombreEquipo}
-                      onChange={(e) => setNuevoNombreEquipo(e.target.value)}
-                      placeholder="Ej: Sub 14 Damas"
-                      style={estiloInput as any}
-                    />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "10px",
-                        backgroundColor: "#10b981",
-                        color: "white",
-                        border: "none",
-                        borderRadius: "6px",
-                        fontWeight: "bold",
-                      }}
+                  {esAdmin && (
+                    <form
+                      onSubmit={crearNuevoEquipo}
+                      style={{ display: "flex", gap: "8px" }}
                     >
-                      + Categoría
-                    </button>
-                  </form>
-
-                  <div
-                    style={{
-                      backgroundColor: "#111827",
-                      padding: "12px",
-                      borderRadius: "8px",
-                      border: "1px solid #374151",
-                    }}
-                  >
-                    <h4
-                      style={{
-                        marginTop: 0,
-                        color: "#60a5fa",
-                        marginBottom: "8px",
-                      }}
-                    >
-                      📋 Permisos Cruzados a Profes
-                    </h4>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "10px",
-                        maxHeight: "150px",
-                        overflowY: "auto",
-                        fontSize: "12px",
-                      }}
-                    >
-                      {listaTodosLosProfes
-                        .filter(
-                          (p) => p.rol !== "admin" && p.rol !== "coordinador"
-                        )
-                        .map((profe) => (
-                          <div
-                            key={profe.id}
-                            style={{
-                              backgroundColor: "#1f2937",
-                              padding: "8px",
-                              borderRadius: "4px",
-                            }}
-                          >
-                            <div
-                              style={{
-                                fontWeight: "bold",
-                                marginBottom: "4px",
-                              }}
-                            >
-                              👤 Profe:{" "}
-                              {profe.email?.split("@")[0].toUpperCase()}
-                            </div>
-                            <div
-                              style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: "6px",
-                              }}
-                            >
-                              {listaEquipos.map((eq) => {
-                                const tieneAcceso =
-                                  profe.categoriasPermitidas?.includes(eq.id);
-                                return (
-                                  <label
-                                    key={eq.id}
-                                    style={{
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "3px",
-                                      backgroundColor: tieneAcceso
-                                        ? "#1e3a8a"
-                                        : "#374151",
-                                      padding: "2px 4px",
-                                      borderRadius: "3px",
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={!!tieneAcceso}
-                                      onChange={() =>
-                                        alternarPermisoCategoria(
-                                          profe.id,
-                                          eq.id,
-                                          !!tieneAcceso
-                                        )
-                                      }
-                                    />
-                                    {eq.nombre}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
+                      <input
+                        type="text"
+                        value={nuevoNombreEquipo}
+                        onChange={(e) => setNuevoNombreEquipo(e.target.value)}
+                        placeholder="Ej: Sub 14 Damas"
+                        style={estiloInput as any}
+                      />
+                      <button
+                        type="submit"
+                        style={{
+                          padding: "10px",
+                          backgroundColor: "#10b981",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        + Categoría
+                      </button>
+                    </form>
+                  )}
 
                   <div
                     style={{
@@ -1627,7 +1400,7 @@ export default function App() {
                         marginBottom: "8px",
                       }}
                     >
-                      👥 Modificar Plantel de Jugadoras
+                      👥 Cargar Jugadoras del Equipo
                     </h4>
                     <form
                       onSubmit={agregarJugadorasAlEquipo}
@@ -1786,7 +1559,7 @@ export default function App() {
                         marginBottom: "8px",
                       }}
                     >
-                      🎛️ Configurar Botones (LongoMatch)
+                      🎛️ Configurar Botonera Personalizada
                     </h4>
                     <form
                       onSubmit={agregarNuevoBoton}
@@ -1833,7 +1606,7 @@ export default function App() {
                         display: "flex",
                         flexDirection: "column",
                         gap: "12px",
-                        maxHeight: "200px",
+                        maxHeight: "250px",
                         overflowY: "auto",
                       }}
                     >
@@ -1855,11 +1628,95 @@ export default function App() {
                               marginBottom: "4px",
                             }}
                           >
-                            <span
-                              style={{ fontWeight: "bold", fontSize: "13px" }}
-                            >
-                              {btn.nombre}
-                            </span>
+                            {botonEditandoNombre === btn.id ? (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: "4px",
+                                  flex: 1,
+                                  marginRight: "8px",
+                                }}
+                              >
+                                <input
+                                  type="text"
+                                  value={nuevoNombreBotonEditado}
+                                  onChange={(e) =>
+                                    setNuevoNombreBotonEditado(e.target.value)
+                                  }
+                                  style={
+                                    {
+                                      ...estiloInput,
+                                      padding: "2px 6px",
+                                      fontSize: "12px",
+                                    } as any
+                                  }
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    modificarNombreBoton_Confirmar(btn.id)
+                                  }
+                                  style={{
+                                    backgroundColor: "#10b981",
+                                    color: "white",
+                                    border: "none",
+                                    padding: "2px 8px",
+                                    borderRadius: "4px",
+                                  }}
+                                >
+                                  💾
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setBotonEditandoNombre(null)}
+                                  style={{
+                                    backgroundColor: "#6b7280",
+                                    color: "white",
+                                    border: "none",
+                                    padding: "2px 8px",
+                                    borderRadius: "4px",
+                                  }}
+                                >
+                                  ❌
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontWeight: "bold",
+                                    fontSize: "13px",
+                                  }}
+                                >
+                                  {btn.nombre}
+                                </span>
+                                {!btn.esGol && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setBotonEditandoNombre(btn.id);
+                                      setNuevoNombreBotonEditado(btn.nombre);
+                                    }}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: "#60a5fa",
+                                      cursor: "pointer",
+                                      fontSize: "11px",
+                                      padding: 0,
+                                    }}
+                                  >
+                                    ✏️ Nombre
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             <div style={{ display: "flex", gap: "3px" }}>
                               <button
                                 type="button"
@@ -1931,7 +1788,6 @@ export default function App() {
                                         background: "none",
                                         border: "none",
                                         color: "#f87171",
-                                        cursor: "pointer",
                                         padding: 0,
                                         fontWeight: "bold",
                                       }}
@@ -1951,7 +1807,7 @@ export default function App() {
                                       [btn.id]: e.target.value,
                                     })
                                   }
-                                  placeholder="Nueva subetiqueta..."
+                                  placeholder="Descriptor..."
                                   style={
                                     {
                                       ...estiloInput,
@@ -2003,7 +1859,7 @@ export default function App() {
                     marginBottom: "16px",
                   }}
                 >
-                  🏑 CONFIGURAR PARTIDO
+                  🏑 INICIAR ENCUENTRO
                 </h2>
                 <form
                   onSubmit={comenzarPartidoEnBaseDeDatos}
@@ -2022,7 +1878,7 @@ export default function App() {
                         fontWeight: "bold",
                       }}
                     >
-                      Categoría:
+                      Categoría de Juego:
                     </label>
                     <select
                       value={equipoSeleccionado}
@@ -2071,7 +1927,7 @@ export default function App() {
                             color: "#9ca3af",
                           }}
                         >
-                          Fecha del Partido:
+                          Fecha:
                         </label>
                         <input
                           type="date"
@@ -2188,7 +2044,7 @@ export default function App() {
               </div>
             </>
           ) : (
-            /* ================= PESTAÑA ACUMULADAS ================= */
+            /* ================= RENDIMIENTO ACUMULADO ================= */
             <div
               style={{
                 backgroundColor: "#1f2937",
@@ -2417,7 +2273,7 @@ export default function App() {
           )}
         </div>
       ) : (
-        /* ---------------- PARTIDO ACTIVO (MODO CANCHA) ---------------- */
+        /* ---------------- PARTIDO ACTIVO ---------------- */
         <div>
           <div
             style={{
@@ -2862,7 +2718,7 @@ export default function App() {
             </div>
           )}
 
-          {/* MODAL GOL */}
+          {/* SUBMENU GOL */}
           {mostrarSubmenuGol && (
             <div
               style={{
