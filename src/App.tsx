@@ -646,6 +646,7 @@ export default function App() {
       estructuraInicialEstadisticas[q]["goles_contra"] = 0;
     });
 
+    // CORREGIDO: Se eliminó el duplicado con el error de tipeo
     await setDoc(doc(db, "partidos_club", nuevoId), {
       id_partido: nuevoId,
       id_categoria: equipoSeleccionado,
@@ -875,6 +876,9 @@ export default function App() {
         pTarget.categoria ||
         listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
         "Categoría";
+      const catFormateada = nombreCategoria.replace(/ /g, "_");
+      const rivalFormateado = (pTarget.rival || "Rival").replace(/ /g, "_");
+
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -882,9 +886,10 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
-        pTarget.fecha
-      }.xlsx`;
+
+      // EXCEL CLARO: Nombre dinámico con categoría, fecha y rival incluidos
+      link.download = `Planilla_${catFormateada}_${pTarget.fecha}_vs_${rivalFormateado}.xlsx`;
+
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1487,7 +1492,7 @@ export default function App() {
                 </>
               )}
 
-              {/* Plantel Con Botón de Editar Reedificado */}
+              {/* Plantel */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1955,6 +1960,27 @@ export default function App() {
                       onChange={(e) => setCancha(e.target.value)}
                       placeholder="Cancha"
                       style={estiloInput as any}
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      style={{
+                        display: "block",
+                        marginBottom: "4px",
+                        fontSize: "13px",
+                        color: "#9ca3af",
+                      }}
+                    >
+                      Fecha del Partido:
+                    </label>
+                    {/* CAMBIO AQUÍ: Ahora se actualiza correctamente la fecha de juego */}
+                    <input
+                      type="date"
+                      value={fecha}
+                      onChange={(e) => setFecha(e.target.value)}
+                      style={estiloInput as any}
+                      required
                     />
                   </div>
 
