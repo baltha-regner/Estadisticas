@@ -21,7 +21,6 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 
-// Colores deportivos predeterminados para ofrecer en la interfaz
 const PALETA_COLORES = [
   { nombre: "Verde Éxito", hex: "#15803d" },
   { nombre: "Rojo Alerta", hex: "#b91c1c" },
@@ -32,7 +31,6 @@ const PALETA_COLORES = [
   { nombre: "Gris Neutro", hex: "#4b5563" },
 ];
 
-// Estructura base inicial adaptada para el nuevo motor de subetiquetas estilo LongoMatch
 const BOTONES_POR_DEFECTO = [
   {
     id: "goles_menu",
@@ -124,7 +122,6 @@ export default function App() {
   const [textoNuevaSubetiqueta, setTextoNuevaSubetiqueta] = useState<{
     [key: string]: string;
   }>({});
-
   const [pestañaActiva, setPestañaActiva] = useState<"partido" | "acumuladas">(
     "partido"
   );
@@ -194,7 +191,7 @@ export default function App() {
     }
   }, [partidoIniciado, idPartido]);
 
-  // --- CONTROLADOR DE SESIÓN CON FILTRO DE ROLES ---
+  // --- CONTROLADOR DE SESIÓN ---
   useEffect(() => {
     const desuscribirAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -203,7 +200,6 @@ export default function App() {
         if (docSnap.exists()) {
           setPerfilUsuario(docSnap.data());
         } else {
-          // Lógica de resguardo para mapeo de credenciales iniciales
           const userClean = user.email?.split("@")[0] || "";
           let rolAsignado = "entrenador";
           if (userClean === "admin" || userClean === "baltha")
@@ -242,7 +238,6 @@ export default function App() {
         todosLosEquipos.push({ id: doc.id, ...doc.data() });
       });
 
-      // Admin y Coordinador ven TODAS las categorías en las listas desplegables
       let equiposFiltrados = todosLosEquipos;
       if (perfil.rol !== "coordinador" && perfil.rol !== "admin") {
         equiposFiltrados = todosLosEquipos.filter((eq) =>
@@ -275,7 +270,6 @@ export default function App() {
         todosLosPartidos.push({ id: doc.id, ...doc.data() });
       });
 
-      // Admin y Coordinador ven TODO el historial de partidos guardados
       let partidosFiltrados = todosLosPartidos;
       if (perfil.rol !== "coordinador" && perfil.rol !== "admin") {
         partidosFiltrados = todosLosPartidos.filter((part) =>
@@ -326,9 +320,7 @@ export default function App() {
 
   const eliminarPartidoHistorial = async (idPart: string) => {
     if (perfilUsuario?.rol !== "admin")
-      return alert(
-        "Acceso denegado: Solo el administrador puede borrar partidos."
-      );
+      return alert("Solo el administrador puede borrar partidos.");
     if (
       !window.confirm("¿Seguro que querés borrar permanentemente este partido?")
     )
@@ -342,7 +334,6 @@ export default function App() {
     }
   };
 
-  // --- ENGINE DE REGISTRO CON DESGLOSE DE SUBETIQUETAS ---
   const manejarSumaMétrica = async (
     metricaId: string,
     subetiquetaNombre?: string
@@ -352,8 +343,7 @@ export default function App() {
       ? `${metricaId}__${subetiquetaNombre.toLowerCase().replace(/ /g, "_")}`
       : metricaId;
     try {
-      const partidoRef = doc(db, "partidos_club", idPartido);
-      await updateDoc(partidRef, {
+      await updateDoc(doc(db, "partidos_club", idPartido), {
         [`estadisticas.${cuartoActual}.${campoFinal}`]: increment(1),
       });
     } catch (err) {
@@ -372,8 +362,7 @@ export default function App() {
     const valorActual = estadisticas[cuartoActual]?.[campoFinal] || 0;
     if (valorActual <= 0) return;
     try {
-      const partidoRef = doc(db, "partidos_club", idPartido);
-      await updateDoc(partidRef, {
+      await updateDoc(doc(db, "partidos_club", idPartido), {
         [`estadisticas.${cuartoActual}.${campoFinal}`]: increment(-1),
       });
     } catch (err) {
@@ -423,13 +412,12 @@ export default function App() {
 
   const guardarBotonesEnFirestore = async (nuevosBotones: any[]) => {
     if (perfilUsuario?.rol !== "admin")
-      return alert(
-        "Acceso denegado: Solo el administrador puede modificar la botonera."
-      );
+      return alert("Solo el administrador puede modificar la botonera.");
     if (!equipoSeleccionado) return;
     try {
-      const eqRef = doc(db, "equipos_club", equipoSeleccionado);
-      await updateDoc(eqRef, { botones: nuevosBotones });
+      await updateDoc(doc(db, "equipos_club", equipoSeleccionado), {
+        botones: nuevosBotones,
+      });
       setBotonesDinamicos(nuevosBotones.sort((a, b) => a.orden - b.orden));
     } catch (err) {
       console.error(err);
@@ -442,7 +430,11 @@ export default function App() {
     if (!texto) return;
     const listAc = botonesDinamicos.map((b) =>
       b.id === btnId
-        ? { ...b, subetiquetas: [...(b.subetiquetas || []), texto] }
+        ? {
+            ...b,
+            subetiquetas: [...(b.subetiquetas || []), text],
+            subetiquetas: [...(b.subetiquetas || []), texto],
+          }
         : b
     );
     guardarBotonesEnFirestore(listAc);
@@ -644,6 +636,63 @@ export default function App() {
       setTitulares((prev) => prev.filter((j) => j !== nombre));
       setSuplentes((prev) => prev.filter((j) => j !== nombre));
     }
+  };
+
+  // --- COMPILACIÓN CORRECTA DE INICIO DE PARTIDO ---
+  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
+    const equipoActual = listaEquipos.find(
+      (eq) => eq.id === equipoSeleccionado
+    );
+    const nuevoId = `${fecha}_${equipoSeleccionado}_vs_${rival
+      .toLowerCase()
+      .replace(/ /g, "_")}`;
+    setIdPartido(nuevoId);
+
+    const estructuraInicialEstadisticas: any = {
+      "1Q": {},
+      "2Q": {},
+      "3Q": {},
+      "4Q": {},
+    };
+    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
+      botonesDinamicos.forEach((b) => {
+        estructuraInicialEstadisticas[q][b.id] = 0;
+        (b.subetiquetas || []).forEach((s: string) => {
+          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
+          estructuraInicialEstadisticas[q][subId] = 0;
+        });
+      });
+      estructuraInicialEstadisticas[q]["goles_favor"] = 0;
+      estructuraInicialEstadisticas[q]["goles_contra"] = 0;
+    });
+
+    await setDoc(doc(db, "partidos_club", nuevoId), {
+      id_partido: nuevoId,
+      id_categoria: equipoSeleccionado,
+      club_local: "Talleres de Paraná",
+      categoria: equipoActual ? equipoActual.nombre : "",
+      rival,
+      cancha,
+      fecha,
+      titulares,
+      suplentes,
+      estadisticas: estructuraInicialEstadisticas,
+      configuracion_botones: botonesDinamicos,
+    });
+    setPartidoIniciado(true);
+  };
+
+  const reingresarAPartido = (partido: any) => {
+    setIdPartido(partido.id_partido || partido.id);
+    setRival(partido.rival || "");
+    setCancha(partido.cancha || "");
+    setFecha(partido.fecha || "");
+    setTitulares(partido.titulares || []);
+    setSuplentes(partido.suplentes || []);
+    setEquipoSeleccionado(partido.id_categoria);
+    setPartidoIniciado(true);
   };
 
   const obtenerEstadisticasAcumuladas = () => {
@@ -887,6 +936,9 @@ export default function App() {
         pTarget.categoria ||
         listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
         "Categoría";
+      const catFormateada = nombreCategoria.replace(/ /g, "_");
+      const rivalFormateado = (pTarget.rival || "Rival").replace(/ /g, "_");
+
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -894,9 +946,8 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
-        pTarget.fecha
-      }_vs_${(pTarget.rival || "Rival").replace(/ /g, "_")}.xlsx`;
+
+      link.download = `Planilla_${catFormateada}_${pTarget.fecha}_vs_${rivalFormateado}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -904,6 +955,146 @@ export default function App() {
       console.error(err);
     }
   };
+
+  if (cargandoAuth) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <h2>🔄 Cargando Sistema de Estadísticas...</h2>
+      </div>
+    );
+  }
+
+  if (!usuario) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          fontFamily: "sans-serif",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: "16px",
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "#1f2937",
+            padding: "28px",
+            borderRadius: "12px",
+            border: "1px solid #374151",
+            width: "100%",
+            maxWidth: "400px",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+          }}
+        >
+          <h2
+            style={{
+              textAlign: "center",
+              color: "#60a5fa",
+              marginTop: 0,
+              marginBottom: "4px",
+            }}
+          >
+            🏑 CLUB TALLERES
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#9ca3af",
+              fontSize: "13px",
+              marginTop: 0,
+              marginBottom: "20px",
+            }}
+          >
+            Estadísticas y Análisis de Partidos
+          </p>
+          <form
+            onSubmit={manejarLoginClub}
+            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Usuario / Entrenador:
+              </label>
+              <input
+                type="text"
+                value={identificadorProfe}
+                onChange={(e) => setIdentificadorProfe(e.target.value)}
+                placeholder="Ej: baltha o coordinador"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Contraseña del Club:
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="******"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            {errorAuth && (
+              <div
+                style={{
+                  color: "#ef4444",
+                  fontSize: "13px",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                }}
+              >
+                ⚠️ {errorAuth}
+              </div>
+            )}
+            <button
+              type="submit"
+              style={{
+                padding: "12px",
+                backgroundColor: "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: "bold",
+                fontSize: "15px",
+                cursor: "pointer",
+              }}
+            >
+              🔑 Ingresar
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const datosAcumulados = obtenerEstadisticasAcumuladas();
   const esAdmin = perfilUsuario?.rol === "admin";
@@ -1013,7 +1204,6 @@ export default function App() {
           {pestañaActiva === "partido" ? (
             <>
               <div style={{ display: "flex", gap: "8px" }}>
-                {/* 🔒 FILTRO: Solo el Admin ve el botón de configurar botoneras o planteles */}
                 {esAdmin && (
                   <button
                     onClick={() => setModoAdmin(!modoAdmin)}
@@ -1028,7 +1218,7 @@ export default function App() {
                       cursor: "pointer",
                     }}
                   >
-                    {modoAdmin ? "❌ Cerrar Ajustes" : "⚙️ Configurar Plantel"}
+                    {modoAdmin ? "❌ Cerrar Panel" : "⚙️ Configurar Plantel"}
                   </button>
                 )}
                 <button
@@ -1051,7 +1241,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* HISTORIAL DE PARTIDOS (Lectura permitida a Coordinador y Admin) */}
+              {/* HISTORIAL */}
               {vistaHistorial && (
                 <div
                   style={{
@@ -1156,7 +1346,6 @@ export default function App() {
                           >
                             📥 Excel
                           </button>
-                          {/* 🔒 BOTÓN DE BORRADO EXCLUSIVO ADMIN */}
                           {esAdmin && (
                             <button
                               onClick={() =>
@@ -1290,7 +1479,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* PANEL ADMIN (Bloqueado de raíz si no es tu cuenta de admin) */}
+              {/* PANEL ADMIN PROTEGIDO */}
               {modoAdmin && esAdmin && (
                 <div
                   style={{
@@ -1597,7 +1786,7 @@ export default function App() {
                         marginBottom: "8px",
                       }}
                     >
-                      🎛️ Configurar Botones y Subcategorías (LongoMatch)
+                      🎛️ Configurar Botones (LongoMatch)
                     </h4>
                     <form
                       onSubmit={agregarNuevoBoton}
@@ -1797,7 +1986,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* FORMULARIO DE INICIO (Habilitado para todos los roles) */}
+              {/* CONFIGURAR PARTIDO */}
               <div
                 style={{
                   backgroundColor: "#1f2937",
@@ -1999,7 +2188,7 @@ export default function App() {
               </div>
             </>
           ) : (
-            /* ================= PESTAÑA RENDIMIENTO ACUMULADO (Apta para Coordinador y Admin) ================= */
+            /* ================= PESTAÑA ACUMULADAS ================= */
             <div
               style={{
                 backgroundColor: "#1f2937",
@@ -2538,7 +2727,7 @@ export default function App() {
             </div>
           )}
 
-          {/* DESGLOSE FLOTANTE */}
+          {/* FLOTANTE SUBETIQUETAS */}
           {botonActivoSubmenu && (
             <div
               style={{
@@ -2941,7 +3130,6 @@ export default function App() {
   );
 }
 
-// Estilos
 const estiloInput = {
   width: "100%",
   padding: "10px",
