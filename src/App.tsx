@@ -406,22 +406,25 @@ export default function App() {
   ) => {
     try {
       const profeRef = doc(db, "usuarios", idProfe);
-      if (tienePermiso)
-        await updateDoc(profeRef, { categoriasPermitidas: arrayRemove(idCat) });
-      else
-        await updateDoc(profeRef, {
-          categoriesPermitidas: arrayUnion(idCat) || arrayUnion(idCat),
-        }); // Tolerancia de typos en db vieja
 
-      // Intentamos actualizar con la property correcta
-      await updateDoc(profeRef, {
-        categoriasPermitidas: tienePermiso
-          ? arrayRemove(idCat)
-          : arrayUnion(idCat),
-      });
+      if (tienePermiso) {
+        // 🔴 QUITAR ACCESO: Removemos el ID de la categoría de ambos campos por seguridad
+        await updateDoc(profeRef, {
+          categoriasPermitidas: arrayRemove(idCat),
+          categoriesPermitidas: arrayRemove(idCat), // Limpieza extra de typos viejos
+        });
+      } else {
+        // 🟢 HABILITAR ACCESO: Añadimos el ID de la categoría
+        await updateDoc(profeRef, {
+          categoriasPermitidas: arrayUnion(idCat),
+          categoriesPermitidas: arrayUnion(idCat),
+        });
+      }
+
+      // Forzamos la actualización del estado local para que impacte la interfaz inmediatamente
       await obtenerListaProfesDeFirestore();
     } catch (err) {
-      console.error(err);
+      console.error("Error modificando permisos del entrenador:", err);
     }
   };
 
