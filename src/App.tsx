@@ -1487,7 +1487,7 @@ export default function App() {
                 </>
               )}
 
-              {/* Plantel */}
+              {/* Plantel Con Botón de Editar Reedificado */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1538,8 +1538,8 @@ export default function App() {
                     style={{
                       display: "flex",
                       flexDirection: "column",
-                      gap: "15px",
-                      maxHeight: "150px",
+                      gap: "8px",
+                      maxHeight: "180px",
                       overflowY: "auto",
                       backgroundColor: "#1f2937",
                       padding: "8px",
@@ -1558,27 +1558,114 @@ export default function App() {
                           borderRadius: "6px",
                         }}
                       >
-                        <span>{j}</span>
-                        <button
-                          type="button"
-                          onClick={() => eliminarJugadoraIndividual(j)}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#f87171",
-                            cursor: "pointer",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          ×
-                        </button>
+                        {jugadoraEditando === j ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: "6px",
+                              width: "100%",
+                            }}
+                          >
+                            <input
+                              type="text"
+                              value={nuevoNombreEditado}
+                              onChange={(e) =>
+                                setNuevoNombreEditado(e.target.value)
+                              }
+                              style={
+                                {
+                                  ...estiloInput,
+                                  padding: "4px 8px",
+                                  fontSize: "13px",
+                                } as any
+                              }
+                            />
+                            <button
+                              type="button"
+                              onClick={() => modificarNombreJugadora(j)}
+                              style={{
+                                backgroundColor: "#10b981",
+                                border: "none",
+                                borderRadius: "4px",
+                                color: "white",
+                                padding: "4px 10px",
+                                cursor: "pointer",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              💾
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setJugadoraEditando(null)}
+                              style={{
+                                backgroundColor: "#6b7280",
+                                border: "none",
+                                borderRadius: "4px",
+                                color: "white",
+                                padding: "4px 10px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span
+                              style={{ fontSize: "13px", fontWeight: "bold" }}
+                            >
+                              {j}
+                            </span>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "12px",
+                                alignItems: "center",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setJugadoraEditando(j);
+                                  setNuevoNombreEditado(j);
+                                }}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "#60a5fa",
+                                  cursor: "pointer",
+                                  fontSize: "13px",
+                                  padding: 0,
+                                }}
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => eliminarJugadoraIndividual(j)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "#f87171",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                  fontSize: "14px",
+                                  padding: 0,
+                                }}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* EDICIÓN DE BOTONERA Y SUBETIQUETAS ESTILO LONGOMATCH */}
+              {/* Botonera */}
               {equipoSeleccionado && (
                 <div
                   style={{
