@@ -29,7 +29,7 @@ const PALETA_COLORES = [
   { nombre: "Amarillo Alerta", hex: "#b45309" },
   { nombre: "Negro", hex: "#1f2937" },
   { nombre: "Morado Especial", hex: "#6b21a8" },
-  { nombre: "Gris Neutro", hex: "#4b5563" },
+  { font: "Gris Neutro", hex: "#4b5563" },
 ];
 
 // Estructura base por si el profe no configuró nada todavía
@@ -180,7 +180,7 @@ export default function App() {
       querySnapshotToArray(queryEquipos, todosLosEquipos);
 
       let equiposFiltrados = todosLosEquipos;
-      if (perfil.role !== "coordinador" && perfil.rol !== "coordinador") {
+      if (perfil.rol !== "coordinador") {
         equiposFiltrados = todosLosEquipos.filter((eq) =>
           perfil.categoriasPermitidas?.includes(eq.id)
         );
@@ -188,7 +188,6 @@ export default function App() {
       setListaEquipos(equiposFiltrados);
 
       if (equiposFiltrados.length > 0) {
-        // Asegurar la consistencia de la categoría elegida
         const inicialId =
           equipoSeleccionado &&
           equiposFiltrados.some((e) => e.id === equipoSeleccionado)
@@ -252,13 +251,10 @@ export default function App() {
     }
   }, [perfilUsuario]);
 
-  // --- FIX DE REFRESCADO AL CAMBIAR DE EQUIPO EN EL CONFIGURADOR ---
   const manejarCambioEquipo = (id: string) => {
     setEquipoSeleccionado(id);
     const equipo = listaEquipos.find((eq) => eq.id === id);
     setJugadorasDelEquipo(equipo ? equipo.jugadoras : []);
-
-    // Limpiamos la lista de seleccionadas del partido anterior para obligar al profe a rearmarlo de forma limpia
     setTitulares([]);
     setSuplentes([]);
 
@@ -408,7 +404,6 @@ export default function App() {
         jugadoras: arrayUnion(...nuevasJugadorasArr),
       });
       setNuevasJugadorasTexto("");
-      // Forzar recarga visual del plantel actual
       const docRef = await getDoc(doc(db, "equipos_club", equipoSeleccionado));
       if (docRef.exists()) setJugadorasDelEquipo(docRef.data().jugadoras || []);
     } catch (e) {
@@ -542,7 +537,7 @@ export default function App() {
   const finalizarPartido = () => {
     if (window.confirm("¿Querés cerrar la mesa de control?")) {
       setCorriendo(false);
-      setSeconds(0);
+      setSegundos(0);
       setPartidoIniciado(false);
       setIdPartido("");
       setRival("");
@@ -552,8 +547,6 @@ export default function App() {
       if (perfilUsuario) cargarDatosClub(perfilUsuario);
     }
   };
-
-  const setSeconds = (v: number) => setSegundos(v);
 
   const reingresarAPartido = (p: any) => {
     setIdPartido(p.id);
@@ -567,6 +560,19 @@ export default function App() {
     setVistaHistorial(false);
     setPartidoHistorialSeleccionado(null);
     setPartidoIniciado(true);
+  };
+
+  const eliminarPartidoHistorial = async (idPart: string) => {
+    if (!perfilUsuario) return;
+    if (!window.confirm("¿Querés ELIMINAR este partido definitivamente?"))
+      return;
+    try {
+      await deleteDoc(doc(db, "partidos_club", idPart));
+      setPartidoHistorialSeleccionado(null);
+      await cargarDatosClub(perfilUsuario);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const asignarRol = (nombre: string, rol: string) => {
@@ -693,190 +699,6 @@ export default function App() {
     }
   };
 
-  const ComponenteBotonDinamico = ({ objetoBoton }: { objetoBoton: any }) => {
-    const tiempoInicioRef = useRef<number>(0);
-    const yaRostoRef = useRef<boolean>(false);
-    const timerRestaRef = useRef<any>(null);
-
-    const presionarBoton = (e: any) => {
-      if (e.type === "touchstart") e.preventDefault();
-      tiempoInicioRef.current = Date.now();
-      yaRostoRef.current = false;
-      timerRestaRef.current = setTimeout(() => {
-        if (!objetoBoton.esGol) {
-          manejarResta(objetoBoton.id);
-        } else {
-          if (window.confirm("¿Querés restar un Gol a Favor?"))
-            manejarResta("goles_favor");
-        }
-        yaRostoRef.current = true;
-        if (navigator.vibrate) navigator.vibrate(55);
-      }, 450);
-    };
-
-    const soltarBoton = (e: any) => {
-      if (e.type === "touchend") e.preventDefault();
-      clearTimeout(timerRestaRef.current);
-      if (Date.now() - tiempoInicioRef.current < 400 && !yaRostoRef.current) {
-        if (objetoBoton.esGol) {
-          setMostrarSubmenuGol(true);
-        } else {
-          manejarSuma(objetoBoton.id);
-        }
-      }
-    };
-
-    const totalMostrar = objetoBoton.esGol
-      ? (estadisticas[cuartoActual]?.["goles_favor"] || 0) +
-        (estadisticas[cuartoActual]?.["goles_contra"] || 0)
-      : estadisticas[cuartoActual]?.[objetoBoton.id] || 0;
-
-    return (
-      <button
-        onMouseDown={presionarBoton}
-        onMouseUp={soltarBoton}
-        onTouchStart={presionarBoton}
-        onTouchEnd={soltarBoton}
-        style={{
-          backgroundColor: objetoBoton.color || "#4b5563",
-          color: "white",
-          border: "none",
-          borderRadius: "12px",
-          padding: "18px 12px",
-          fontWeight: "bold",
-          fontSize: "18px",
-          cursor: "pointer",
-          userSelect: "none",
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: "4px",
-          boxShadow: "0 4px 6px -1px rgba(0,0,0,0.3)",
-          width: "100%",
-        }}
-      >
-        <span
-          style={{
-            fontSize: "13px",
-            textTransform: "uppercase",
-            textAlign: "center",
-          }}
-        >
-          {objetoBoton.nombre}
-        </span>
-        <span style={{ fontSize: "26px", fontFamily: "monospace" }}>
-          {totalMostrar}
-        </span>
-      </button>
-    );
-  };
-
-  const estiloInput: React.CSSProperties = {
-    width: "100%",
-    padding: "10px",
-    borderRadius: "6px",
-    backgroundColor: "#374151",
-    border: "1px solid #4b5563",
-    color: "white",
-    boxSizing: "border-box",
-  };
-  const estiloCeldaTh: React.CSSProperties = {
-    border: "1px solid #4b5563",
-    padding: "12px",
-    backgroundColor: "#1f2937",
-    color: "#f3f4f6",
-  };
-  const estiloCeldaTd: React.CSSProperties = {
-    border: "1px solid #374151",
-    padding: "12px",
-    textAlign: "center",
-  };
-
-  if (cargandoAuth) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <h2>🔄 Cargando Mesa de Control...</h2>
-      </div>
-    );
-  }
-
-  if (!usuario) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          fontFamily: "sans-serif",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "16px",
-        }}
-      >
-        <div
-          style={{
-            maxWidth: "400px",
-            width: "100%",
-            backgroundColor: "#1f2937",
-            padding: "28px",
-            borderRadius: "12px",
-            border: "1px solid #374151",
-          }}
-        >
-          <h2 style={{ textAlign: "center", color: "#60a5fa", marginTop: 0 }}>
-            🏑 CONTROL DE ESTADÍSTICAS
-          </h2>
-          <form
-            onSubmit={manejarAuth}
-            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
-          >
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="dt@talleres.com"
-              style={estiloInput as any}
-              required
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="******"
-              style={estiloInput as any}
-              required
-            />
-            <button
-              type="submit"
-              style={{
-                padding: "12px",
-                borderRadius: "8px",
-                border: "none",
-                backgroundColor: "#2563eb",
-                color: "white",
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
-            >
-              🔑 Ingresar
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       style={{
@@ -902,7 +724,7 @@ export default function App() {
         }}
       >
         <span style={{ fontSize: "13px", color: "#9ca3af" }}>
-          🏃‍♂️ Técnico: <b>{usuario.email}</b>
+          🏃‍♂️ Técnico: <b>{usuario?.email}</b>
         </span>
         <button
           onClick={cerrarSesion}
@@ -1017,19 +839,75 @@ export default function App() {
                 </div>
               ) : (
                 <div>
-                  <button
-                    onClick={() => setPartidoHistorialSeleccionado(null)}
+                  <div
                     style={{
-                      padding: "6px 12px",
-                      backgroundColor: "#475569",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "6px",
+                      display: "flex",
+                      justifyContent: "space-between",
                       marginBottom: "10px",
                     }}
                   >
-                    ⬅️ Volver
-                  </button>
+                    <button
+                      onClick={() => setPartidoHistorialSeleccionado(null)}
+                      style={{
+                        padding: "6px 12px",
+                        backgroundColor: "#475569",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      ⬅️ Volver
+                    </button>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button
+                        onClick={() =>
+                          reingresarAPartido(partidoHistorialSeleccionado)
+                        }
+                        style={{
+                          padding: "6px 12px",
+                          backgroundColor: "#2563eb",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        🏑 Reabrir
+                      </button>
+                      <button
+                        onClick={() =>
+                          exportarAExcel(partidoHistorialSeleccionado)
+                        }
+                        style={{
+                          padding: "6px 12px",
+                          backgroundColor: "#16a34a",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        📥 Excel
+                      </button>
+                      <button
+                        onClick={() =>
+                          eliminarPartidoHistorial(
+                            partidoHistorialSeleccionado.id
+                          )
+                        }
+                        style={{
+                          padding: "6px 12px",
+                          backgroundColor: "#dc2626",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        🗑️ Borrar
+                      </button>
+                    </div>
+                  </div>
                   <div style={{ overflowX: "auto" }}>
                     <table
                       style={{
@@ -1114,34 +992,127 @@ export default function App() {
               }}
             >
               {perfilUsuario?.rol === "coordinador" && (
-                <form
-                  onSubmit={crearNuevoEquipo}
-                  style={{ display: "flex", gap: "8px" }}
-                >
-                  <input
-                    type="text"
-                    value={nuevoNombreEquipo}
-                    onChange={(e) => setNuevoNombreEquipo(e.target.value)}
-                    placeholder="Ej: Sub 14 Damas"
-                    style={estiloInput as any}
-                  />
-                  <button
-                    type="submit"
+                <>
+                  <form
+                    onSubmit={crearNuevoEquipo}
+                    style={{ display: "flex", gap: "8px" }}
+                  >
+                    <input
+                      type="text"
+                      value={nuevoNombreEquipo}
+                      onChange={(e) => setNuevoNombreEquipo(e.target.value)}
+                      placeholder="Ej: Sub 14 Damas"
+                      style={estiloInput as any}
+                    />
+                    <button
+                      type="submit"
+                      style={{
+                        padding: "10px",
+                        backgroundColor: "#10b981",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontWeight: "bold",
+                      }}
+                    >
+                      + Categoría
+                    </button>
+                  </form>
+                  <div
                     style={{
-                      padding: "10px",
-                      backgroundColor: "#10b981",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "6px",
-                      fontWeight: "bold",
+                      backgroundColor: "#111827",
+                      padding: "12px",
+                      borderRadius: "8px",
+                      border: "1px solid #374151",
                     }}
                   >
-                    + Categoría
-                  </button>
-                </form>
+                    <h4
+                      style={{
+                        marginTop: 0,
+                        color: "#60a5fa",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      📋 Permisos de Profes
+                    </h4>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        maxHeight: "150px",
+                        overflowY: "auto",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {listaTodosLosProfes
+                        .filter((p) => p.rol !== "coordinador")
+                        .map((profe) => (
+                          <div
+                            key={profe.id}
+                            style={{
+                              backgroundColor: "#1f2937",
+                              padding: "8px",
+                              borderRadius: "4px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontWeight: "bold",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              📧 {profe.email}
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: "6px",
+                              }}
+                            >
+                              {listaEquipos.map((eq) => {
+                                const tieneAcceso =
+                                  profe.categoriasPermitidas?.includes(eq.id);
+                                return (
+                                  <label
+                                    key={eq.id}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "3px",
+                                      backgroundColor: tieneAcceso
+                                        ? "#1e3a8a"
+                                        : "#374151",
+                                      padding: "2px 4px",
+                                      borderRadius: "3px",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={!!tieneAcceso}
+                                      onChange={() =>
+                                        alternarPermisoCategoria(
+                                          profe.id,
+                                          eq.id,
+                                          !!tieneAcceso
+                                        )
+                                      }
+                                    />
+                                    {eq.nombre}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </>
               )}
 
-              {/* Cargar Jugadoras */}
+              {/* Modificar Plantel de Jugadoras */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1188,7 +1159,6 @@ export default function App() {
                       +
                     </button>
                   </form>
-
                   <div
                     style={{
                       display: "flex",
@@ -1326,7 +1296,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Ajustar Botonera */}
+              {/* Configurar Botones */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1380,7 +1350,7 @@ export default function App() {
                         borderRadius: "6px",
                       }}
                     >
-                      + App
+                      ➕
                     </button>
                   </form>
                   <div
@@ -1440,7 +1410,7 @@ export default function App() {
             </div>
           )}
 
-          {/* NUEVO PARTIDO (VISTA MEJORADA PARA ELEGIR ROLES) */}
+          {/* NUEVO PARTIDO */}
           <div
             style={{
               backgroundColor: "#1f2937",
@@ -1516,7 +1486,7 @@ export default function App() {
                     />
                   </div>
 
-                  {/* 📊 SECCIÓN RE-ACTIVADA Y FIJADA DE CONVOCADAS */}
+                  {/* 📋 LISTA DE SELECCIÓN DE TITULARES / SUPLENTES REPARADA */}
                   <h3
                     style={{
                       borderBottom: "1px solid #4b5563",
@@ -1554,7 +1524,7 @@ export default function App() {
                         }}
                       >
                         No hay jugadoras cargadas en este plantel. Cargalas
-                        arriba en el botón azul de Plantel.
+                        arriba en Plantel / Botonera.
                       </div>
                     ) : (
                       jugadorasDelEquipo.map((j) => {
@@ -1567,21 +1537,13 @@ export default function App() {
                               display: "flex",
                               justifyContent: "space-between",
                               alignItems: "center",
-                              backgroundColor: "#1f2937",
-                              padding: "6px 10px",
+                              backgroundColor: "#2d3748",
+                              padding: "6px 8px",
                               borderRadius: "6px",
                             }}
                           >
                             <span
-                              style={{
-                                fontSize: "13px",
-                                fontWeight: "bold",
-                                color: esT
-                                  ? "#22c55e"
-                                  : esS
-                                  ? "#f59e0b"
-                                  : "#f3f4f6",
-                              }}
+                              style={{ fontSize: "13px", fontWeight: "500" }}
                             >
                               {j}
                             </span>
@@ -1602,7 +1564,7 @@ export default function App() {
                                   fontSize: "11px",
                                 }}
                               >
-                                Titular
+                                {esT ? "✓ Titular" : "Titular"}
                               </button>
                               <button
                                 type="button"
@@ -1620,7 +1582,7 @@ export default function App() {
                                   fontSize: "11px",
                                 }}
                               >
-                                Suplente
+                                {esS ? "✓ Banco" : "Banco"}
                               </button>
                             </div>
                           </div>
@@ -1628,11 +1590,10 @@ export default function App() {
                       })
                     )}
                   </div>
-
                   <button
                     type="submit"
                     style={{
-                      marginTop: "4px",
+                      marginTop: "6px",
                       padding: "14px",
                       borderRadius: "8px",
                       border: "none",
@@ -1643,7 +1604,7 @@ export default function App() {
                       cursor: "pointer",
                     }}
                   >
-                    🚀 EMPEZAR PARTIDO
+                    🚀 INICIAR PARTIDO
                   </button>
                 </>
               )}
@@ -2095,3 +2056,31 @@ export default function App() {
     </div>
   );
 }
+
+// Estilos globales de fallback para los componentes dinámicos
+const estiloInput = {
+  width: "100%",
+  padding: "10px",
+  borderRadius: "6px",
+  border: "1px solid #4b5563",
+  backgroundColor: "#1f2937",
+  color: "white",
+  fontSize: "14px",
+  boxSizing: "border-box" as "border-box",
+};
+
+const estiloCeldaTh = {
+  padding: "12px",
+  border: "1px solid #374151",
+  backgroundColor: "#1f2937",
+  color: "#f3f4f6",
+  textAlign: "center" as "center",
+  fontSize: "13px",
+};
+
+const estiloCeldaTd = {
+  padding: "12px",
+  border: "1px solid #374151",
+  textAlign: "center" as "center",
+  fontSize: "14px",
+};
