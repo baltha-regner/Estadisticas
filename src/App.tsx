@@ -962,7 +962,7 @@ export default function App() {
   const puedeEditarBotoneraYPlantel =
     esAdmin ||
     perfilUsuario?.categoriasPermitidas?.includes(equipoSeleccionado);
-
+  const datosAcumulados = obtenerEstadisticasAcumuladas();
   return (
     <div
       style={{
