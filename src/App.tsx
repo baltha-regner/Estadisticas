@@ -121,12 +121,10 @@ export default function App() {
   const [nuevoBtnNombre, setNuevoBtnNombre] = useState<string>("");
   const [nuevoBtnColor, setNuevoBtnColor] = useState<string>("#4b5563");
 
-  // Estado para las subetiquetas
   const [textoNuevaSubetiqueta, setTextoNuevaSubetiqueta] = useState<{
     [key: string]: string;
   }>({});
 
-  // --- NUEVO ESTADO: CONTROL DE PESTAÑAS PRINCIPALES ---
   const [pestañaActiva, setPestañaActiva] = useState<"partido" | "acumuladas">(
     "partido"
   );
@@ -196,7 +194,7 @@ export default function App() {
     }
   }, [partidoIniciado, idPartido]);
 
-  // --- CONTROLADOR DE SESIÓN ---
+  // --- CONTROLADOR DE SESIÓN CON FILTRO DE ROLES ---
   useEffect(() => {
     const desuscribirAuth = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -205,12 +203,22 @@ export default function App() {
         if (docSnap.exists()) {
           setPerfilUsuario(docSnap.data());
         } else {
-          const esCoord = user.email === "coordinador@talleres.com";
+          // Lógica de resguardo para mapeo de credenciales iniciales
+          const userClean = user.email?.split("@")[0] || "";
+          let rolAsignado = "entrenador";
+          if (userClean === "admin" || userClean === "baltha")
+            rolAsignado = "admin";
+          else if (userClean === "coordinador") rolAsignado = "coordinador";
+
           const defecto = {
             email: user.email,
-            rol: esCoord ? "coordinador" : "entrenador",
-            categoriasPermitidas: esCoord ? [] : ["sub14"],
+            rol: rolAsignado,
+            categoriasPermitidas:
+              rolAsignado === "admin" || rolAsignado === "coordinador"
+                ? []
+                : ["sub14"],
           };
+          await setDoc(doc(db, "usuarios", user.uid), defecto);
           setPerfilUsuario(defecto);
         }
       } else {
@@ -234,8 +242,9 @@ export default function App() {
         todosLosEquipos.push({ id: doc.id, ...doc.data() });
       });
 
+      // Admin y Coordinador ven TODAS las categorías en las listas desplegables
       let equiposFiltrados = todosLosEquipos;
-      if (perfil.rol !== "coordinador") {
+      if (perfil.rol !== "coordinador" && perfil.rol !== "admin") {
         equiposFiltrados = todosLosEquipos.filter((eq) =>
           perfil.categoriasPermitidas?.includes(eq.id)
         );
@@ -266,8 +275,9 @@ export default function App() {
         todosLosPartidos.push({ id: doc.id, ...doc.data() });
       });
 
+      // Admin y Coordinador ven TODO el historial de partidos guardados
       let partidosFiltrados = todosLosPartidos;
-      if (perfil.rol !== "coordinador") {
+      if (perfil.rol !== "coordinador" && perfil.rol !== "admin") {
         partidosFiltrados = todosLosPartidos.filter((part) =>
           perfil.categoriasPermitidas?.includes(part.id_categoria)
         );
@@ -275,7 +285,7 @@ export default function App() {
       partidosFiltrados.sort((a, b) => b.fecha.localeCompare(a.fecha));
       setListaPartidosViejos(partidosFiltrados);
 
-      if (perfil.rol === "coordinador") obtenerListaProfesDeFirestore();
+      if (perfil.rol === "admin") obtenerListaProfesDeFirestore();
     } catch (e) {
       console.error(e);
     }
@@ -315,6 +325,10 @@ export default function App() {
   };
 
   const eliminarPartidoHistorial = async (idPart: string) => {
+    if (perfilUsuario?.rol !== "admin")
+      return alert(
+        "Acceso denegado: Solo el administrador puede borrar partidos."
+      );
     if (
       !window.confirm("¿Seguro que querés borrar permanentemente este partido?")
     )
@@ -339,7 +353,7 @@ export default function App() {
       : metricaId;
     try {
       const partidoRef = doc(db, "partidos_club", idPartido);
-      await updateDoc(partidoRef, {
+      await updateDoc(partidRef, {
         [`estadisticas.${cuartoActual}.${campoFinal}`]: increment(1),
       });
     } catch (err) {
@@ -359,7 +373,7 @@ export default function App() {
     if (valorActual <= 0) return;
     try {
       const partidoRef = doc(db, "partidos_club", idPartido);
-      await updateDoc(partidoRef, {
+      await updateDoc(partidRef, {
         [`estadisticas.${cuartoActual}.${campoFinal}`]: increment(-1),
       });
     } catch (err) {
@@ -394,6 +408,7 @@ export default function App() {
     idCat: string,
     tienePermiso: boolean
   ) => {
+    if (perfilUsuario?.rol !== "admin") return;
     try {
       const profeRef = doc(db, "usuarios", idProfe);
       if (tienePermiso)
@@ -407,6 +422,10 @@ export default function App() {
   };
 
   const guardarBotonesEnFirestore = async (nuevosBotones: any[]) => {
+    if (perfilUsuario?.rol !== "admin")
+      return alert(
+        "Acceso denegado: Solo el administrador puede modificar la botonera."
+      );
     if (!equipoSeleccionado) return;
     try {
       const eqRef = doc(db, "equipos_club", equipoSeleccionado);
@@ -418,66 +437,74 @@ export default function App() {
   };
 
   const agregarSubetiquetaA_Boton = (btnId: string) => {
+    if (perfilUsuario?.rol !== "admin") return;
     const texto = textoNuevaSubetiqueta[btnId]?.trim();
     if (!texto) return;
-    const listaActualizada = botonesDinamicos.map((b) => {
-      if (b.id === btnId)
-        return { ...b, subetiquetas: [...(b.subetiquetas || []), texto] };
-      return b;
-    });
-    guardarBotonesEnFirestore(listaActualizada);
+    const listAc = botonesDinamicos.map((b) =>
+      b.id === btnId
+        ? { ...b, subetiquetas: [...(b.subetiquetas || []), texto] }
+        : b
+    );
+    guardarBotonesEnFirestore(listAc);
     setTextoNuevaSubetiqueta((prev) => ({ ...prev, [btnId]: "" }));
   };
 
   const eliminarSubetiquetaDe_Boton = (btnId: string, subNombre: string) => {
-    const listaActualizada = botonesDinamicos.map((b) => {
-      if (b.id === btnId)
-        return {
-          ...b,
-          subetiquetas: (b.subetiquetas || []).filter(
-            (s: string) => s !== subNombre
-          ),
-        };
-      return b;
-    });
-    guardarBotonesEnFirestore(listaActualizada);
+    if (perfilUsuario?.rol !== "admin") return;
+    const listAc = botonesDinamicos.map((b) =>
+      b.id === btnId
+        ? {
+            ...b,
+            subetiquetas: (b.subetiquetas || []).filter(
+              (s: string) => s !== subNombre
+            ),
+          }
+        : b
+    );
+    guardarBotonesEnFirestore(listAc);
   };
 
   const agregarNuevoBoton = (e: React.FormEvent) => {
     e.preventDefault();
+    if (perfilUsuario?.rol !== "admin") return;
     if (!nuevoBtnNombre.trim()) return;
     const idSugerido =
       "btn_" +
       nuevoBtnNombre.toLowerCase().replace(/ /g, "_") +
       "_" +
       Date.now().toString().slice(-4);
-    const nuevoObj = {
-      id: idSugerido,
-      nombre: nuevoBtnNombre,
-      color: nuevoBtnColor,
-      orden: botonesDinamicos.length,
-      subetiquetas: [],
-    };
-    guardarBotonesEnFirestore([...botonesDinamicos, nuevoObj]);
+    guardarBotonesEnFirestore([
+      ...botonesDinamicos,
+      {
+        id: idSugerido,
+        nombre: nuevoBtnNombre,
+        color: nuevoBtnColor,
+        orden: botonesDinamicos.length,
+        subetiquetas: [],
+      },
+    ]);
     setNuevoBtnNombre("");
   };
 
   const eliminarBotonDinamico = (idBtn: string) => {
+    if (perfilUsuario?.rol !== "admin") return;
     if (!window.confirm("¿Querés eliminar esta métrica?")) return;
-    const listaFiltrada = botonesDinamicos
-      .filter((b) => b.id !== idBtn)
-      .map((b, index) => ({ ...b, orden: index }));
-    guardarBotonesEnFirestore(listaFiltrada);
+    guardarBotonesEnFirestore(
+      botonesDinamicos
+        .filter((b) => b.id !== idBtn)
+        .map((b, idx) => ({ ...b, orden: idx }))
+    );
   };
 
   const moverOrdenBoton = (index: number, direccion: "subir" | "bajar") => {
+    if (perfilUsuario?.rol !== "admin") return;
     if (direccion === "subir" && index === 0) return;
     if (direccion === "bajar" && index === botonesDinamicos.length - 1) return;
     const nuevaLista = [...botonesDinamicos];
-    const objetivoIdx = direccion === "subir" ? index - 1 : index + 1;
+    const objIdx = direccion === "subir" ? index - 1 : index + 1;
     const temp = nuevaLista[index];
-    nuevaLista[index] = nuevaLista[objetivoIdx];
-    nuevaLista[objetivoIdx] = temp;
+    nuevaLista[index] = nuevaLista[objIdx];
+    nuevaLista[objIdx] = temp;
     guardarBotonesEnFirestore(nuevaLista.map((b, i) => ({ ...b, orden: i })));
   };
 
@@ -501,12 +528,19 @@ export default function App() {
             emailSimulado,
             password
           );
-          const esCoord = userClean === "coordinador";
+          let rolAsignado = "entrenador";
+          if (userClean === "admin" || userClean === "baltha")
+            rolAsignado = "admin";
+          else if (userClean === "coordinador") rolAsignado = "coordinador";
+
           const nuevoPerfil = {
             email: emailSimulado,
             identificador: userClean,
-            rol: esCoord ? "coordinador" : "entrenador",
-            categoriasPermitidas: esCoord ? [] : ["sub14"],
+            rol: rolAsignado,
+            categoriasPermitidas:
+              rolAsignado === "admin" || rolAsignado === "coordinador"
+                ? []
+                : ["sub14"],
           };
           await setDoc(doc(db, "usuarios", credencial.user.uid), nuevoPerfil);
           setPerfilUsuario(nuevoPerfil);
@@ -521,9 +555,9 @@ export default function App() {
 
   const crearNuevoEquipo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevoNombreEquipo.trim() || !perfilUsuario) return;
-    if (perfilUsuario.rol !== "coordinador")
-      return alert("Solo el coordinador puede crear categorías.");
+    if (perfilUsuario?.rol !== "admin")
+      return alert("Solo el administrador puede crear categorías.");
+    if (!nuevoNombreEquipo.trim()) return;
     const idSugerido = nuevoNombreEquipo.toLowerCase().replace(/ /g, "_");
     try {
       await setDoc(doc(db, "equipos_club", idSugerido), {
@@ -545,8 +579,9 @@ export default function App() {
 
   const agregarJugadorasAlEquipo = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nuevasJugadorasTexto.trim() || !equipoSeleccionado || !perfilUsuario)
-      return;
+    if (perfilUsuario?.rol !== "admin")
+      return alert("Solo el administrador puede modificar las jugadoras.");
+    if (!nuevasJugadorasTexto.trim() || !equipoSeleccionado) return;
     const nuevasJugadorasArr = nuevasJugadorasTexto
       .split(",")
       .map((name) => name.trim())
@@ -564,12 +599,8 @@ export default function App() {
   };
 
   const modificarNombreJugadora = async (nombreViejo: string) => {
-    if (!nuevoNombreEditado.trim() || !equipoSeleccionado || !perfilUsuario)
-      return;
-    if (nombreViejo === nuevoNombreEditado.trim()) {
-      setJugadoraEditando(null);
-      return;
-    }
+    if (perfilUsuario?.rol !== "admin") return;
+    if (!nuevoNombreEditado.trim() || !equipoSeleccionado) return;
     try {
       const nuevoArrayJugadoras = jugadorasDelEquipo.map((j) =>
         j === nombreViejo ? nuevoNombreEditado.trim() : j
@@ -586,7 +617,7 @@ export default function App() {
   };
 
   const eliminarJugadoraIndividual = async (nombreJugadora: string) => {
-    if (!perfilUsuario) return;
+    if (perfilUsuario?.rol !== "admin") return;
     if (!window.confirm(`¿Querés eliminar a ${nombreJugadora}?`)) return;
     try {
       const nuevoArray = jugadorasDelEquipo.filter((j) => j !== nombreJugadora);
@@ -615,63 +646,6 @@ export default function App() {
     }
   };
 
-  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
-    const equipoActual = listaEquipos.find(
-      (eq) => eq.id === equipoSeleccionado
-    );
-    const nuevoId = `${fecha}_${equipoSeleccionado}_vs_${rival
-      .toLowerCase()
-      .replace(/ /g, "_")}`;
-    setIdPartido(nuevoId);
-
-    const estructuraInicialEstadisticas: any = {
-      "1Q": {},
-      "2Q": {},
-      "3Q": {},
-      "4Q": {},
-    };
-    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
-      botonesDinamicos.forEach((b) => {
-        estructuraInicialEstadisticas[q][b.id] = 0;
-        (b.subetiquetas || []).forEach((s: string) => {
-          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
-          estructuraInicialEstadisticas[q][subId] = 0;
-        });
-      });
-      estructuraInicialEstadisticas[q]["goles_favor"] = 0;
-      estructuraInicialEstadisticas[q]["goles_contra"] = 0;
-    });
-
-    await setDoc(doc(db, "partidos_club", nuevoId), {
-      id_partido: nuevoId,
-      id_categoria: equipoSeleccionado,
-      club_local: "Talleres de Paraná",
-      categoria: equipoActual ? equipoActual.nombre : "",
-      rival,
-      cancha,
-      fecha,
-      titulares,
-      suplentes,
-      estadisticas: estructuraInicialEstadisticas,
-      configuracion_botones: botonesDinamicos,
-    });
-    setPartidoIniciado(true);
-  };
-
-  const reingresarAPartido = (partido: any) => {
-    setIdPartido(partido.id_partido || partido.id);
-    setRival(partido.rival || "");
-    setCancha(partido.cancha || "");
-    setFecha(partido.fecha || "");
-    setTitulares(partido.titulares || []);
-    setSuplentes(partido.suplentes || []);
-    setEquipoSeleccionado(partido.id_categoria);
-    setPartidoIniciado(true);
-  };
-
-  // --- FUNCIÓN DE CÓMPUTO PARA EL PANEL ACUMULADO ---
   const obtenerEstadisticasAcumuladas = () => {
     const partidosCategoria = listaPartidosViejos.filter(
       (p) => p.id_categoria === equipoSeleccionado
@@ -692,8 +666,6 @@ export default function App() {
         Object.keys(statsQ).forEach((key) => {
           iniciales.totales[key] =
             (iniciales.totales[key] || 0) + (statsQ[key] || 0);
-
-          // Agrupar volumen total por cuarto para ver momentos del juego (ej: ingresos_area_favor o tiros)
           if (
             key.includes("favor") ||
             key === "ingresos_area_favor" ||
@@ -712,7 +684,6 @@ export default function App() {
       });
     });
 
-    // Calcular promedios reales
     Object.keys(iniciales.totales).forEach((key) => {
       iniciales.promedios[key] = Number(
         (iniciales.totales[key] / totalPartidos).toFixed(1)
@@ -816,14 +787,6 @@ export default function App() {
       worksheet.mergeCells("E6:H16");
       worksheet.getCell("E6").border = borderFino;
 
-      worksheet.getRow(18).height = 20;
-      worksheet.mergeCells("A18:C18");
-      worksheet.getCell("A18").value = "OBJETIVOS OFENSIVOS";
-      worksheet.getCell("A18").font = fontNegrita;
-      worksheet.mergeCells("D18:F18");
-      worksheet.getCell("D18").value = "OBJETIVOS DEFENSIVOS";
-      worksheet.getCell("D18").font = fontNegrita;
-
       let filaActualTabla = 21;
       worksheet.getRow(filaActualTabla).height = 22;
       const headers = [
@@ -924,9 +887,6 @@ export default function App() {
         pTarget.categoria ||
         listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
         "Categoría";
-      const catFormateada = nombreCategoria.replace(/ /g, "_");
-      const rivalFormateado = (pTarget.rival || "Rival").replace(/ /g, "_");
-
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -934,8 +894,9 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-
-      link.download = `Planilla_${catFormateada}_${pTarget.fecha}_vs_${rivalFormateado}.xlsx`;
+      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
+        pTarget.fecha
+      }_vs_${(pTarget.rival || "Rival").replace(/ /g, "_")}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -944,147 +905,8 @@ export default function App() {
     }
   };
 
-  if (cargandoAuth) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
-        <h2>🔄 Cargando Sistema de Estadísticas...</h2>
-      </div>
-    );
-  }
-
-  if (!usuario) {
-    return (
-      <div
-        style={{
-          backgroundColor: "#111827",
-          color: "white",
-          minHeight: "100vh",
-          fontFamily: "sans-serif",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          padding: "16px",
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "#1f2937",
-            padding: "28px",
-            borderRadius: "12px",
-            border: "1px solid #374151",
-            width: "100%",
-            maxWidth: "400px",
-            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
-          }}
-        >
-          <h2
-            style={{
-              textAlign: "center",
-              color: "#60a5fa",
-              marginTop: 0,
-              marginBottom: "4px",
-            }}
-          >
-            🏑 CLUB TALLERES
-          </h2>
-          <p
-            style={{
-              textAlign: "center",
-              color: "#9ca3af",
-              fontSize: "13px",
-              marginTop: 0,
-              marginBottom: "20px",
-            }}
-          >
-            Estadísticas y Análisis de Partidos
-          </p>
-          <form
-            onSubmit={manejarLoginClub}
-            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
-          >
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "14px",
-                  color: "#d1d5db",
-                }}
-              >
-                Usuario / Entrenador:
-              </label>
-              <input
-                type="text"
-                value={identificadorProfe}
-                onChange={(e) => setIdentificadorProfe(e.target.value)}
-                placeholder="Ej: baltha o coordinador"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  marginBottom: "6px",
-                  fontSize: "14px",
-                  color: "#d1d5db",
-                }}
-              >
-                Contraseña del Club:
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="******"
-                style={estiloInput as any}
-                required
-              />
-            </div>
-            {errorAuth && (
-              <div
-                style={{
-                  color: "#ef4444",
-                  fontSize: "13px",
-                  textAlign: "center",
-                  fontWeight: "bold",
-                }}
-              >
-                ⚠️ {errorAuth}
-              </div>
-            )}
-            <button
-              type="submit"
-              style={{
-                padding: "12px",
-                backgroundColor: "#2563eb",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontWeight: "bold",
-                fontSize: "15px",
-                cursor: "pointer",
-              }}
-            >
-              🔑 Ingresar
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   const datosAcumulados = obtenerEstadisticasAcumuladas();
+  const esAdmin = perfilUsuario?.rol === "admin";
 
   return (
     <div
@@ -1111,10 +933,11 @@ export default function App() {
         }}
       >
         <span style={{ fontSize: "13px", color: "#9ca3af" }}>
-          🏃‍♂️ Profe:{" "}
+          🏃‍♂️ Perfil:{" "}
           <b style={{ color: "#60a5fa" }}>
             {usuario?.email?.split("@")[0].toUpperCase()}
-          </b>
+          </b>{" "}
+          ({perfilUsuario?.rol?.toUpperCase()})
         </span>
         <button
           onClick={cerrarSesion}
@@ -1142,7 +965,6 @@ export default function App() {
             gap: "16px",
           }}
         >
-          {/* BOTONES DE NAVEGACIÓN DE PESTAÑAS */}
           <div
             style={{
               display: "flex",
@@ -1191,21 +1013,24 @@ export default function App() {
           {pestañaActiva === "partido" ? (
             <>
               <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  onClick={() => setModoAdmin(!modoAdmin)}
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    borderRadius: "8px",
-                    border: "none",
-                    backgroundColor: modoAdmin ? "#ef4444" : "#4f46e5",
-                    color: "white",
-                    fontWeight: "bold",
-                    cursor: "pointer",
-                  }}
-                >
-                  {modoAdmin ? "❌ Cerrar Ajustes" : "⚙️ Configurar Plantel"}
-                </button>
+                {/* 🔒 FILTRO: Solo el Admin ve el botón de configurar botoneras o planteles */}
+                {esAdmin && (
+                  <button
+                    onClick={() => setModoAdmin(!modoAdmin)}
+                    style={{
+                      flex: 1,
+                      padding: "10px",
+                      borderRadius: "8px",
+                      border: "none",
+                      backgroundColor: modoAdmin ? "#ef4444" : "#4f46e5",
+                      color: "white",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {modoAdmin ? "❌ Cerrar Ajustes" : "⚙️ Configurar Plantel"}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setVistaHistorial(!vistaHistorial);
@@ -1226,7 +1051,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* HISTORIAL */}
+              {/* HISTORIAL DE PARTIDOS (Lectura permitida a Coordinador y Admin) */}
               {vistaHistorial && (
                 <div
                   style={{
@@ -1331,24 +1156,27 @@ export default function App() {
                           >
                             📥 Excel
                           </button>
-                          <button
-                            onClick={() =>
-                              eliminarPartidoHistorial(
-                                partidoHistorialSeleccionado.id ||
-                                  partidoHistorialSeleccionado.id_partido
-                              )
-                            }
-                            style={{
-                              padding: "6px 12px",
-                              backgroundColor: "#dc2626",
-                              color: "white",
-                              border: "none",
-                              borderRadius: "6px",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            🗑️ Borrar
-                          </button>
+                          {/* 🔒 BOTÓN DE BORRADO EXCLUSIVO ADMIN */}
+                          {esAdmin && (
+                            <button
+                              onClick={() =>
+                                eliminarPartidoHistorial(
+                                  partidoHistorialSeleccionado.id ||
+                                    partidoHistorialSeleccionado.id_partido
+                                )
+                              }
+                              style={{
+                                padding: "6px 12px",
+                                backgroundColor: "#dc2626",
+                                color: "white",
+                                border: "none",
+                                borderRadius: "6px",
+                                fontWeight: "bold",
+                              }}
+                            >
+                              🗑️ Borrar
+                            </button>
+                          )}
                         </div>
                       </div>
                       <div style={{ overflowX: "auto" }}>
@@ -1462,8 +1290,8 @@ export default function App() {
                 </div>
               )}
 
-              {/* PANEL ADMIN */}
-              {modoAdmin && (
+              {/* PANEL ADMIN (Bloqueado de raíz si no es tu cuenta de admin) */}
+              {modoAdmin && esAdmin && (
                 <div
                   style={{
                     backgroundColor: "#1e293b",
@@ -1475,205 +1303,501 @@ export default function App() {
                     gap: "14px",
                   }}
                 >
-                  {perfilUsuario?.rol === "coordinador" && (
-                    <>
-                      <form
-                        onSubmit={crearNuevoEquipo}
-                        style={{ display: "flex", gap: "8px" }}
-                      >
-                        <input
-                          type="text"
-                          value={nuevoNombreEquipo}
-                          onChange={(e) => setNuevoNombreEquipo(e.target.value)}
-                          placeholder="Ej: Sub 14 Damas"
-                          style={estiloInput as any}
-                        />
-                        <button
-                          type="submit"
-                          style={{
-                            padding: "10px",
-                            backgroundColor: "#10b981",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "6px",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          + Categoría
-                        </button>
-                      </form>
-                    </>
-                  )}
-
-                  {equipoSeleccionado && (
-                    <div
+                  <form
+                    onSubmit={crearNuevoEquipo}
+                    style={{ display: "flex", gap: "8px" }}
+                  >
+                    <input
+                      type="text"
+                      value={nuevoNombreEquipo}
+                      onChange={(e) => setNuevoNombreEquipo(e.target.value)}
+                      placeholder="Ej: Sub 14 Damas"
+                      style={estiloInput as any}
+                    />
+                    <button
+                      type="submit"
                       style={{
-                        backgroundColor: "#111827",
-                        padding: "12px",
-                        borderRadius: "8px",
+                        padding: "10px",
+                        backgroundColor: "#10b981",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "6px",
+                        fontWeight: "bold",
                       }}
                     >
-                      <h4
-                        style={{
-                          marginTop: 0,
-                          color: "#10b981",
-                          marginBottom: "8px",
-                        }}
-                      >
-                        👥 Modificar Plantel
-                      </h4>
-                      <form
-                        onSubmit={agregarJugadorasAlEquipo}
-                        style={{
-                          display: "flex",
-                          gap: "6px",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        <input
-                          type="text"
-                          value={nuevasJugadorasTexto}
-                          onChange={(e) =>
-                            setNuevasJugadorasTexto(e.target.value)
-                          }
-                          placeholder="Nombres separados por coma"
-                          style={estiloInput as any}
-                        />
-                        <button
-                          type="submit"
-                          style={{
-                            padding: "10px",
-                            backgroundColor: "#2563eb",
-                            color: "white",
-                            border: "none",
-                            borderRadius: "6px",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          +
-                        </button>
-                      </form>
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "8px",
-                          maxHeight: "180px",
-                          overflowY: "auto",
-                          backgroundColor: "#1f2937",
-                          padding: "8px",
-                          borderRadius: "6px",
-                        }}
-                      >
-                        {jugadorasDelEquipo.map((j) => (
+                      + Categoría
+                    </button>
+                  </form>
+
+                  <div
+                    style={{
+                      backgroundColor: "#111827",
+                      padding: "12px",
+                      borderRadius: "8px",
+                      border: "1px solid #374151",
+                    }}
+                  >
+                    <h4
+                      style={{
+                        marginTop: 0,
+                        color: "#60a5fa",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      📋 Permisos Cruzados a Profes
+                    </h4>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        maxHeight: "150px",
+                        overflowY: "auto",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {listaTodosLosProfes
+                        .filter(
+                          (p) => p.rol !== "admin" && p.rol !== "coordinador"
+                        )
+                        .map((profe) => (
                           <div
-                            key={j}
+                            key={profe.id}
                             style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "space-between",
-                              backgroundColor: "#374151",
-                              padding: "6px 10px",
-                              borderRadius: "6px",
+                              backgroundColor: "#1f2937",
+                              padding: "8px",
+                              borderRadius: "4px",
                             }}
                           >
-                            {jugadoraEditando === j ? (
+                            <div
+                              style={{
+                                fontWeight: "bold",
+                                marginBottom: "4px",
+                              }}
+                            >
+                              👤 Profe:{" "}
+                              {profe.email?.split("@")[0].toUpperCase()}
+                            </div>
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: "6px",
+                              }}
+                            >
+                              {listaEquipos.map((eq) => {
+                                const tieneAcceso =
+                                  profe.categoriasPermitidas?.includes(eq.id);
+                                return (
+                                  <label
+                                    key={eq.id}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "3px",
+                                      backgroundColor: tieneAcceso
+                                        ? "#1e3a8a"
+                                        : "#374151",
+                                      padding: "2px 4px",
+                                      borderRadius: "3px",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={!!tieneAcceso}
+                                      onChange={() =>
+                                        alternarPermisoCategoria(
+                                          profe.id,
+                                          eq.id,
+                                          !!tieneAcceso
+                                        )
+                                      }
+                                    />
+                                    {eq.nombre}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      backgroundColor: "#111827",
+                      padding: "12px",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    <h4
+                      style={{
+                        marginTop: 0,
+                        color: "#10b981",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      👥 Modificar Plantel de Jugadoras
+                    </h4>
+                    <form
+                      onSubmit={agregarJugadorasAlEquipo}
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={nuevasJugadorasTexto}
+                        onChange={(e) =>
+                          setNuevasJugadorasTexto(e.target.value)
+                        }
+                        placeholder="Nombres separados por coma"
+                        style={estiloInput as any}
+                      />
+                      <button
+                        type="submit"
+                        style={{
+                          padding: "10px",
+                          backgroundColor: "#2563eb",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        +
+                      </button>
+                    </form>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                        maxHeight: "150px",
+                        overflowY: "auto",
+                        backgroundColor: "#1f2937",
+                        padding: "8px",
+                        borderRadius: "6px",
+                      }}
+                    >
+                      {jugadorasDelEquipo.map((j) => (
+                        <div
+                          key={j}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            backgroundColor: "#374151",
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                          }}
+                        >
+                          {jugadoraEditando === j ? (
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: "6px",
+                                width: "100%",
+                              }}
+                            >
+                              <input
+                                type="text"
+                                value={nuevoNombreEditado}
+                                onChange={(e) =>
+                                  setNuevoNombreEditado(e.target.value)
+                                }
+                                style={
+                                  {
+                                    ...estiloInput,
+                                    padding: "4px 8px",
+                                    fontSize: "13px",
+                                  } as any
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() => modificarNombreJugadora(j)}
+                                style={{
+                                  backgroundColor: "#10b981",
+                                  border: "none",
+                                  borderRadius: "4px",
+                                  color: "white",
+                                  padding: "4px 10px",
+                                  cursor: "pointer",
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                💾
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <span
+                                style={{ fontSize: "13px", fontWeight: "bold" }}
+                              >
+                                {j}
+                              </span>
                               <div
                                 style={{
                                   display: "flex",
-                                  gap: "6px",
-                                  width: "100%",
+                                  gap: "12px",
+                                  alignItems: "center",
                                 }}
                               >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setJugadoraEditando(j);
+                                    setNuevoNombreEditado(j);
+                                  }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#60a5fa",
+                                    cursor: "pointer",
+                                    fontSize: "13px",
+                                  }}
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => eliminarJugadoraIndividual(j)}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "#f87171",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      backgroundColor: "#111827",
+                      padding: "12px",
+                      borderRadius: "8px",
+                    }}
+                  >
+                    <h4
+                      style={{
+                        marginTop: 0,
+                        color: "#818cf8",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      🎛️ Configurar Botones y Subcategorías (LongoMatch)
+                    </h4>
+                    <form
+                      onSubmit={agregarNuevoBoton}
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={nuevoBtnNombre}
+                        onChange={(e) => setNuevoBtnNombre(e.target.value)}
+                        placeholder="Nueva Métrica Principal"
+                        style={estiloInput as any}
+                      />
+                      <select
+                        value={nuevoBtnColor}
+                        onChange={(e) => setNuevoBtnColor(e.target.value)}
+                        style={estiloInput as any}
+                      >
+                        {PALETA_COLORES.map((c) => (
+                          <option key={c.hex} value={c.hex}>
+                            {c.nombre}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        style={{
+                          padding: "10px",
+                          backgroundColor: "#10b981",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "6px",
+                        }}
+                      >
+                        ➕
+                      </button>
+                    </form>
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "12px",
+                        maxHeight: "200px",
+                        overflowY: "auto",
+                      }}
+                    >
+                      {botonesDinamicos.map((btn, idx) => (
+                        <div
+                          key={btn.id}
+                          style={{
+                            backgroundColor: "#1f2937",
+                            padding: "10px",
+                            borderRadius: "6px",
+                            borderLeft: `5px solid ${btn.color}`,
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              marginBottom: "4px",
+                            }}
+                          >
+                            <span
+                              style={{ fontWeight: "bold", fontSize: "13px" }}
+                            >
+                              {btn.nombre}
+                            </span>
+                            <div style={{ display: "flex", gap: "3px" }}>
+                              <button
+                                type="button"
+                                onClick={() => moverOrdenBoton(idx, "subir")}
+                                disabled={idx === 0}
+                              >
+                                🔼
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => moverOrdenBoton(idx, "bajar")}
+                                disabled={idx === botonesDinamicos.length - 1}
+                              >
+                                🔽
+                              </button>
+                              {!btn.esGol && (
+                                <button
+                                  type="button"
+                                  onClick={() => eliminarBotonDinamico(btn.id)}
+                                  style={{
+                                    color: "#f87171",
+                                    border: "none",
+                                    background: "none",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  ❌
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {!btn.esGol && (
+                            <div
+                              style={{
+                                backgroundColor: "#111827",
+                                padding: "6px",
+                                borderRadius: "4px",
+                                marginTop: "4px",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: "4px",
+                                  marginBottom: "4px",
+                                }}
+                              >
+                                {(btn.subetiquetas || []).map((sub: string) => (
+                                  <span
+                                    key={sub}
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      backgroundColor: "#374151",
+                                      padding: "2px 6px",
+                                      borderRadius: "4px",
+                                      fontSize: "11px",
+                                    }}
+                                  >
+                                    {sub}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        eliminarSubetiquetaDe_Boton(btn.id, sub)
+                                      }
+                                      style={{
+                                        background: "none",
+                                        border: "none",
+                                        color: "#f87171",
+                                        cursor: "pointer",
+                                        padding: 0,
+                                        fontWeight: "bold",
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                              <div style={{ display: "flex", gap: "4px" }}>
                                 <input
                                   type="text"
-                                  value={nuevoNombreEditado}
+                                  value={textoNuevaSubetiqueta[btn.id] || ""}
                                   onChange={(e) =>
-                                    setNuevoNombreEditado(e.target.value)
+                                    setTextoNuevaSubetiqueta({
+                                      ...textoNuevaSubetiqueta,
+                                      [btn.id]: e.target.value,
+                                    })
                                   }
+                                  placeholder="Nueva subetiqueta..."
                                   style={
                                     {
                                       ...estiloInput,
                                       padding: "4px 8px",
-                                      fontSize: "13px",
+                                      fontSize: "12px",
                                     } as any
                                   }
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => modificarNombreJugadora(j)}
+                                  onClick={() =>
+                                    agregarSubetiquetaA_Boton(btn.id)
+                                  }
                                   style={{
-                                    backgroundColor: "#10b981",
+                                    backgroundColor: "#15803d",
                                     border: "none",
                                     borderRadius: "4px",
                                     color: "white",
-                                    padding: "4px 10px",
-                                    cursor: "pointer",
-                                    fontWeight: "bold",
+                                    padding: "2px 8px",
+                                    fontSize: "12px",
                                   }}
                                 >
-                                  💾
+                                  +
                                 </button>
                               </div>
-                            ) : (
-                              <>
-                                <span
-                                  style={{
-                                    fontSize: "13px",
-                                    fontWeight: "bold",
-                                  }}
-                                >
-                                  {j}
-                                </span>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    gap: "12px",
-                                    alignItems: "center",
-                                  }}
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setJugadoraEditando(j);
-                                      setNuevoNombreEditado(j);
-                                    }}
-                                    style={{
-                                      background: "none",
-                                      border: "none",
-                                      color: "#60a5fa",
-                                      cursor: "pointer",
-                                      fontSize: "13px",
-                                    }}
-                                  >
-                                    ✏️
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      eliminarJugadoraIndividual(j)
-                                    }
-                                    style={{
-                                      background: "none",
-                                      border: "none",
-                                      color: "#f87171",
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                  )}
+                  </div>
                 </div>
               )}
 
-              {/* FORMULARIO DE INICIO */}
+              {/* FORMULARIO DE INICIO (Habilitado para todos los roles) */}
               <div
                 style={{
                   backgroundColor: "#1f2937",
@@ -1749,7 +1873,6 @@ export default function App() {
                           style={estiloInput as any}
                         />
                       </div>
-
                       <div>
                         <label
                           style={{
@@ -1782,7 +1905,6 @@ export default function App() {
                         📋 Convocadas ({titulares.length} Tit. /{" "}
                         {suplentes.length} Sup.)
                       </h3>
-
                       <div
                         style={{
                           maxHeight: "180px",
@@ -1877,7 +1999,7 @@ export default function App() {
               </div>
             </>
           ) : (
-            /* ================= PESTAÑA ACUMULADAS ================= */
+            /* ================= PESTAÑA RENDIMIENTO ACUMULADO (Apta para Coordinador y Admin) ================= */
             <div
               style={{
                 backgroundColor: "#1f2937",
@@ -1891,10 +2013,10 @@ export default function App() {
             >
               <div style={{ textAlign: "center" }}>
                 <h3 style={{ margin: 0, color: "#34d399" }}>
-                  📊 PANEL DE RENDIMIENTO ACUMULADO
+                  📊 DESEMPEÑO GLOBAL ACUMULADO
                 </h3>
                 <span style={{ fontSize: "13px", color: "#9ca3af" }}>
-                  Partidos procesados de la temporada:{" "}
+                  Encuentros auditados de la temporada:{" "}
                   {datosAcumulados.partidosTotales}
                 </span>
               </div>
@@ -1907,11 +2029,10 @@ export default function App() {
                     padding: "20px",
                   }}
                 >
-                  No hay partidos registrados aún para calcular promedios.
+                  No hay estadísticas consolidadas en este plantel todavía.
                 </p>
               ) : (
                 <>
-                  {/* METRICAS PROMEDIO */}
                   <div
                     style={{
                       backgroundColor: "#111827",
@@ -1926,7 +2047,7 @@ export default function App() {
                         fontSize: "14px",
                       }}
                     >
-                      📈 Promedios Reales por Partido
+                      📈 Volumen Medio por Encuentro
                     </h4>
                     <div
                       style={{
@@ -1966,7 +2087,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* EFECTIVIDAD POR CUARTOS */}
                   <div
                     style={{
                       backgroundColor: "#111827",
@@ -1981,14 +2101,13 @@ export default function App() {
                         fontSize: "14px",
                       }}
                     >
-                      📊 Volumen Ofensivo Global por Cuartos
+                      📊 Distribución Ofensiva por Cuartos
                     </h4>
                     <div
                       style={{
                         display: "flex",
                         flexDirection: "column",
                         gap: "10px",
-                        marginTop: "10px",
                       }}
                     >
                       {["1Q", "2Q", "3Q", "4Q"].map((q) => {
@@ -2035,16 +2154,11 @@ export default function App() {
                                   width: `${porcentajeAncho}%`,
                                   backgroundColor: "#2563eb",
                                   height: "100%",
-                                  transition: "width 0.4s",
                                 }}
                               />
                             </div>
                             <span
-                              style={{
-                                fontSize: "12px",
-                                fontWeight: "bold",
-                                minWidth: "20px",
-                              }}
+                              style={{ fontSize: "12px", fontWeight: "bold" }}
                             >
                               {totalQ}
                             </span>
@@ -2054,7 +2168,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* BALANCE DE CORTOS */}
                   <div
                     style={{
                       backgroundColor: "#111827",
@@ -2070,14 +2183,13 @@ export default function App() {
                         fontSize: "14px",
                       }}
                     >
-                      🏑 Balance de Cortos Totales
+                      🏑 Balance Consolidado de Cortos
                     </h4>
                     <div
                       style={{
                         display: "grid",
                         gridTemplateColumns: "1fr 1fr",
                         gap: "10px",
-                        marginTop: "6px",
                       }}
                     >
                       <div
@@ -2116,7 +2228,7 @@ export default function App() {
           )}
         </div>
       ) : (
-        /* ---------------- MODO JUEGO ACTIVO ---------------- */
+        /* ---------------- PARTIDO ACTIVO (MODO CANCHA) ---------------- */
         <div>
           <div
             style={{
@@ -2171,7 +2283,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* VISTA MÓVIL */}
+          {/* CELULAR */}
           {vista === "telefono" && (
             <div
               style={{
@@ -2220,7 +2332,6 @@ export default function App() {
                         fontSize: "24px",
                         fontFamily: "monospace",
                         fontWeight: "bold",
-                        color: "#f3f4f6",
                       }}
                     >
                       {calcularTotalMétrica("goles_favor")}
@@ -2250,14 +2361,12 @@ export default function App() {
                         fontSize: "24px",
                         fontFamily: "monospace",
                         fontWeight: "bold",
-                        color: "#f3f4f6",
                       }}
                     >
                       {calcularTotalMétrica("goles_contra")}
                     </div>
                   </div>
                 </div>
-
                 <div
                   style={{
                     fontSize: "42px",
@@ -2364,15 +2473,6 @@ export default function App() {
                       </button>
                     );
                   }
-
-                  const procesarToquePrincipal = () => {
-                    if (btn.subetiquetas && btn.subetiquetas.length > 0) {
-                      setBotonActivoSubmenu(btn);
-                    } else {
-                      manejarSumaMétrica(btn.id);
-                    }
-                  };
-
                   return (
                     <div
                       key={btn.id}
@@ -2383,11 +2483,14 @@ export default function App() {
                         borderRadius: "10px",
                         overflow: "hidden",
                         border: "1px solid #374151",
-                        boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
                       }}
                     >
                       <button
-                        onClick={procesarToquePrincipal}
+                        onClick={() => {
+                          if (btn.subetiquetas && btn.subetiquetas.length > 0)
+                            setBotonActivoSubmenu(btn);
+                          else manejarSumaMétrica(btn.id);
+                        }}
                         style={{
                           flex: 1,
                           padding: "18px 10px",
@@ -2412,11 +2515,9 @@ export default function App() {
                       </button>
                       <button
                         onClick={() => {
-                          if (btn.subetiquetas && btn.subetiquetas.length > 0) {
+                          if (btn.subetiquetas && btn.subetiquetas.length > 0)
                             setBotonActivoSubmenu({ ...btn, modoResta: true });
-                          } else {
-                            manejarRestaMétrica(btn.id);
-                          }
+                          else manejarRestaMétrica(btn.id);
                         }}
                         style={{
                           padding: "6px",
@@ -2437,7 +2538,7 @@ export default function App() {
             </div>
           )}
 
-          {/* FLOTANTE SUBETIQUETAS */}
+          {/* DESGLOSE FLOTANTE */}
           {botonActivoSubmenu && (
             <div
               style={{
@@ -2478,7 +2579,6 @@ export default function App() {
                     : "📈 REGISTRAR:"}{" "}
                   {botonActivoSubmenu.nombre}
                 </h3>
-
                 <div
                   style={{
                     display: "flex",
@@ -2507,7 +2607,6 @@ export default function App() {
                       ? "(-) Solo General"
                       : "(+) Solo General"}
                   </button>
-
                   {(botonActivoSubmenu.subetiquetas || []).map(
                     (sub: string) => {
                       const subId = `${botonActivoSubmenu.id}__${sub
@@ -2574,7 +2673,7 @@ export default function App() {
             </div>
           )}
 
-          {/* POPUP GOL */}
+          {/* MODAL GOL */}
           {mostrarSubmenuGol && (
             <div
               style={{
@@ -2634,7 +2733,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => {
-                      Lobster: manejarSumaMétrica("goles_contra");
+                      manejarSumaMétrica("goles_contra");
                       setMostrarSubmenuGol(false);
                     }}
                     style={{
@@ -2667,7 +2766,7 @@ export default function App() {
             </div>
           )}
 
-          {/* VISTA PC */}
+          {/* PC */}
           {vista === "computadora" && (
             <div style={{ maxWidth: "950px", margin: "0 auto" }}>
               <div
@@ -2842,7 +2941,7 @@ export default function App() {
   );
 }
 
-// Estilos globales de fallback
+// Estilos
 const estiloInput = {
   width: "100%",
   padding: "10px",
