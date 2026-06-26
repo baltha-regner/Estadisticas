@@ -286,7 +286,7 @@ export default function App() {
       partidosFiltrados.sort((a, b) => b.fecha.localeCompare(a.fecha));
       setListaPartidosViejos(partidosFiltrados);
 
-      if (perfil.rol === "admin") obtenerListaProfesDeFirestore();
+      obtenerListaProfesDeFirestore();
     } catch (e) {
       console.error(e);
     }
@@ -341,7 +341,6 @@ export default function App() {
     }
   };
 
-  // --- ENGINE DE REGISTRO CON DESGLOSE DE SUBETIQUETAS ---
   const manejarSumaMétrica = async (
     metricaId: string,
     subetiquetaNombre?: string
@@ -405,13 +404,21 @@ export default function App() {
     idCat: string,
     tienePermiso: boolean
   ) => {
-    if (perfilUsuario?.rol !== "admin") return;
     try {
       const profeRef = doc(db, "usuarios", idProfe);
       if (tienePermiso)
         await updateDoc(profeRef, { categoriasPermitidas: arrayRemove(idCat) });
       else
-        await updateDoc(profeRef, { categoriasPermitidas: arrayUnion(idCat) });
+        await updateDoc(profeRef, {
+          categoriesPermitidas: arrayUnion(idCat) || arrayUnion(idCat),
+        }); // Tolerancia de typos en db vieja
+
+      // Intentamos actualizar con la property correcta
+      await updateDoc(profeRef, {
+        categoriasPermitidas: tienePermiso
+          ? arrayRemove(idCat)
+          : arrayUnion(idCat),
+      });
       await obtenerListaProfesDeFirestore();
     } catch (err) {
       console.error(err);
@@ -430,7 +437,6 @@ export default function App() {
     }
   };
 
-  // --- MODIFICACIÓN DINÁMICA DE NOMBRE DE BOTÓN ---
   const modificarNombreBoton_Confirmar = (btnId: string) => {
     if (!nuevoNombreBotonEditado.trim()) return;
     const listaActualizada = botonesDinamicos.map((b) =>
@@ -745,224 +751,154 @@ export default function App() {
     return iniciales;
   };
 
-  const exportarAExcel = async (partidoEspecifico: any = null) => {
-    const pTarget = partidoEspecifico || {
-      rival,
-      fecha,
-      cancha,
-      titulares,
-      suplentes,
-      estadisticas,
-      configuracion_botones: botonesDinamicos,
-    };
-    const btnsFicha = pTarget.configuracion_botones || BOTONES_POR_DEFECTO;
-    try {
-      const ExcelJS = await import("exceljs");
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Planilla de Juego");
-      worksheet.columns = [
-        { width: 5 },
-        { width: 22 },
-        { width: 5 },
-        { width: 22 },
-        { width: 18 },
-        { width: 15 },
-        { width: 15 },
-        { width: 15 },
-      ];
+  if (cargandoAuth) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <h2>🔄 Cargando Sistema de Estadísticas...</h2>
+      </div>
+    );
+  }
 
-      const fontNegrita = { name: "Calibri", bold: true, size: 11 };
-      const fontNormal = { name: "Calibri", size: 11 };
-      const borderFino = {
-        top: { style: "thin" as any },
-        left: { style: "thin" as any },
-        bottom: { style: "thin" as any },
-        right: { style: "thin" as any },
-      };
-      const alinearCentro = {
-        horizontal: "center" as any,
-        vertical: "middle" as any,
-      };
-      const alinearIzquierda = {
-        horizontal: "left" as any,
-        vertical: "middle" as any,
-      };
-
-      worksheet.mergeCells("A1:H1");
-      worksheet.getCell("A1").value =
-        "PLANILLA DE ESTADÍSTICAS – CLUB TALLERES";
-      worksheet.getCell("A1").font = { name: "Calibri", bold: true, size: 14 };
-      worksheet.getCell("A1").alignment = alinearCentro;
-      worksheet.getRow(1).height = 30;
-
-      worksheet.getRow(3).height = 22;
-      worksheet.getCell("A3").value = "Club:";
-      worksheet.getCell("B3").value = "Talleres de Paraná";
-      worksheet.getCell("C3").value = "Rival:";
-      worksheet.getCell("D3").value = pTarget.rival || "";
-      worksheet.getCell("E3").value = "Fecha:";
-      worksheet.getCell("F3").value = pTarget.fecha || "";
-      worksheet.getCell("G3").value = "Cancha:";
-      worksheet.getCell("H3").value = pTarget.cancha || "";
-      ["A3", "B3", "C3", "D3", "E3", "F3", "G3", "H3"].forEach((c) => {
-        worksheet.getCell(c).font = fontNegrita;
-        worksheet.getCell(c).border = borderFino;
-        worksheet.getCell(c).alignment = alinearCentro;
-      });
-
-      worksheet.getRow(5).height = 20;
-      worksheet.mergeCells("A5:B5");
-      worksheet.getCell("A5").value = "Titulares";
-      worksheet.mergeCells("C5:D5");
-      worksheet.getCell("C5").value = "Suplentes";
-      worksheet.mergeCells("E5:H5");
-      worksheet.getCell("E5").value = "Observaciones";
-
-      const tits = pTarget.titulares || [];
-      const sups = pTarget.suplentes || [];
-      for (let i = 0; i < 11; i++) {
-        const filaIdx = 6 + i;
-        worksheet.getRow(filaIdx).height = 18;
-        worksheet.getCell(`A${filaIdx}`).value = i + 1;
-        worksheet.getCell(`A${filaIdx}`).border = borderFino;
-        worksheet.getCell(`A${filaIdx}`).alignment = alinearCentro;
-        worksheet.getCell(`B${filaIdx}`).value = tits[i] || "";
-        worksheet.getCell(`B${filaIdx}`).border = borderFino;
-        worksheet.getCell(`B${filaIdx}`).alignment = alinearIzquierda;
-        worksheet.getCell(`C${filaIdx}`).value = i + 1;
-        worksheet.getCell(`C${filaIdx}`).border = borderFino;
-        worksheet.getCell(`C${filaIdx}`).alignment = alinearCentro;
-        worksheet.getCell(`D${filaIdx}`).value = sups[i] || "";
-        worksheet.getCell(`D${filaIdx}`).border = borderFino;
-        worksheet.getCell(`D${filaIdx}`).alignment = alinearIzquierda;
-      }
-      worksheet.mergeCells("E6:H16");
-      worksheet.getCell("E6").border = borderFino;
-
-      let filaActualTabla = 21;
-      worksheet.getRow(filaActualTabla).height = 22;
-      const headers = [
-        "Métrica / Descriptor",
-        "1° Cuarto",
-        "2° Cuarto",
-        "3° Cuarto",
-        "4° Cuarto",
-        "TOTAL",
-        "",
-        "",
-      ];
-      headers.forEach((h, idx) => {
-        if (idx < 6) {
-          const c = worksheet.getCell(
-            `${String.fromCharCode(65 + idx)}${filaActualTabla}`
-          );
-          c.value = h;
-          c.font = fontNegrita;
-          c.alignment = alinearCentro;
-          c.border = borderFino;
-        }
-      });
-
-      const inyectarFilaFija = (label: string, idCampo: string) => {
-        filaActualTabla++;
-        worksheet.getRow(filaActualTabla).height = 20;
-        const cL = worksheet.getCell(`A${filaActualTabla}`);
-        cL.value = label;
-        cL.font = fontNegrita;
-        cL.border = borderFino;
-        ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
-          const c = worksheet.getCell(
-            `${String.fromCharCode(66 + i)}${filaActualTabla}`
-          );
-          c.value = pTarget.estadisticas?.[q]?.[idCampo] || 0;
-          c.border = borderFino;
-          c.alignment = alinearCentro;
-        });
-        const cT = worksheet.getCell(`F${filaActualTabla}`);
-        cT.value = calcularTotalMétrica(idCampo, pTarget.estadisticas);
-        cT.font = fontNegrita;
-        cT.border = borderFino;
-        cT.alignment = alinearCentro;
-      };
-
-      inyectarFilaFija("⚽ Goles a Favor (CAT)", "goles_favor");
-      inyectarFilaFija("⚽ Goles en Contra (Rival)", "goles_contra");
-
-      btnsFicha
-        .filter((b: any) => !b.esGol)
-        .forEach((btn: any) => {
-          filaActualTabla++;
-          worksheet.getRow(filaActualTabla).height = 20;
-          const cL = worksheet.getCell(`A${filaActualTabla}`);
-          cL.value = btn.nombre.toUpperCase();
-          cL.font = fontNegrita;
-          cL.border = borderFino;
-          ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
-            const c = worksheet.getCell(
-              `${String.fromCharCode(66 + i)}${filaActualTabla}`
-            );
-            c.value = pTarget.estadisticas?.[q]?.[btn.id] || 0;
-            c.border = borderFino;
-            c.alignment = alinearCentro;
-          });
-          const cT = worksheet.getCell(`F${filaActualTabla}`);
-          cT.value = calcularTotalMétrica(btn.id, pTarget.estadisticas);
-          cT.font = fontNegrita;
-          cT.border = borderFino;
-          cT.alignment = alinearCentro;
-
-          (btn.subetiquetas || []).forEach((sub: string) => {
-            filaActualTabla++;
-            worksheet.getRow(filaActualTabla).height = 18;
-            const subId = `${btn.id}__${sub.toLowerCase().replace(/ /g, "_")}`;
-            const cSubL = worksheet.getCell(`A${filaActualTabla}`);
-            cSubL.value = `   ↳ ${sub}`;
-            cSubL.font = fontNormal;
-            cSubL.border = borderFino;
-            ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
-              const c = worksheet.getCell(
-                `${String.fromCharCode(66 + i)}${filaActualTabla}`
-              );
-              c.value = pTarget.estadisticas?.[q]?.[subId] || 0;
-              c.border = borderFino;
-              c.alignment = alinearCentro;
-            });
-            const cSubT = worksheet.getCell(`F${filaActualTabla}`);
-            cSubT.value = calcularTotalMétrica(subId, pTarget.estadisticas);
-            cSubT.font = fontNegrita;
-            cSubT.border = borderFino;
-            cSubT.alignment = alinearCentro;
-          });
-        });
-
-      const nombreCategoria =
-        pTarget.categoria ||
-        listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
-        "Categoría";
-      const buffer = await workbook.xlsx.writeBuffer();
-      const blob = new Blob([buffer], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
-        pTarget.fecha
-      }_vs_${(pTarget.rival || "Rival").replace(/ /g, "_")}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  if (!usuario) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          fontFamily: "sans-serif",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: "16px",
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "#1f2937",
+            padding: "28px",
+            borderRadius: "12px",
+            border: "1px solid #374151",
+            width: "100%",
+            maxWidth: "400px",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+          }}
+        >
+          <h2
+            style={{
+              textAlign: "center",
+              color: "#60a5fa",
+              marginTop: 0,
+              marginBottom: "4px",
+            }}
+          >
+            🏑 CLUB TALLERES
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#9ca3af",
+              fontSize: "13px",
+              marginTop: 0,
+              marginBottom: "20px",
+            }}
+          >
+            Estadísticas y Análisis de Partidos
+          </p>
+          <form
+            onSubmit={manejarLoginClub}
+            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Usuario / Entrenador:
+              </label>
+              <input
+                type="text"
+                value={identificadorProfe}
+                onChange={(e) => setIdentificadorProfe(e.target.value)}
+                placeholder="Ej: baltha o coordinador"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Contraseña del Club:
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="******"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            {errorAuth && (
+              <div
+                style={{
+                  color: "#ef4444",
+                  fontSize: "13px",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                }}
+              >
+                ⚠️ {errorAuth}
+              </div>
+            )}
+            <button
+              type="submit"
+              style={{
+                padding: "12px",
+                backgroundColor: "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: "bold",
+                fontSize: "15px",
+                cursor: "pointer",
+              }}
+            >
+              🔑 Ingresar
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const esAdmin = perfilUsuario?.rol === "admin";
   const esCoordinador = perfilUsuario?.rol === "coordinador";
-  const puedeEditarBotoneraYPlantel =
+  const puedeEstructuraYPlantel =
     esAdmin ||
     perfilUsuario?.categoriasPermitidas?.includes(equipoSeleccionado);
+
   const datosAcumulados = obtenerEstadisticasAcumuladas();
+
   return (
     <div
       style={{
@@ -1068,7 +1004,7 @@ export default function App() {
           {pestañaActiva === "partido" ? (
             <>
               <div style={{ display: "flex", gap: "8px" }}>
-                {puedeEditarBotoneraYPlantel && (
+                {!esCoordinador && (
                   <button
                     onClick={() => setModoAdmin(!modoAdmin)}
                     style={{
@@ -1082,9 +1018,7 @@ export default function App() {
                       cursor: "pointer",
                     }}
                   >
-                    {modoAdmin
-                      ? "❌ Cerrar Ajustes"
-                      : "👥 Configurar Categoría"}
+                    {modoAdmin ? "❌ Cerrar Panel" : "👥 Configurar Categoría"}
                   </button>
                 )}
                 <button
@@ -1196,21 +1130,6 @@ export default function App() {
                             }}
                           >
                             🏑 Reabrir
-                          </button>
-                          <button
-                            onClick={() =>
-                              exportarAExcel(partidoHistorialSeleccionado)
-                            }
-                            style={{
-                              padding: "6px 12px",
-                              backgroundColor: "#16a34a",
-                              color: "white",
-                              border: "none",
-                              borderRadius: "6px",
-                              fontWeight: "bold",
-                            }}
-                          >
-                            📥 Excel
                           </button>
                           {esAdmin && (
                             <button
@@ -1345,8 +1264,8 @@ export default function App() {
                 </div>
               )}
 
-              {/* PANEL ADMIN PROTEGIDO POR CATEGORÍA O SÚPER-ADMIN */}
-              {modoAdmin && puedeEditarBotoneraYPlantel && (
+              {/* PANEL GESTIÓN DE CATEGORÍA */}
+              {modoAdmin && puedeEstructuraYPlantel && (
                 <div
                   style={{
                     backgroundColor: "#1e293b",
@@ -1384,6 +1303,98 @@ export default function App() {
                         + Categoría
                       </button>
                     </form>
+                  )}
+
+                  {/* 🔥 NUEVO: SECCIÓN ASIGNAR ENTRENADORES DIRECTO EN LA CATEGORÍA */}
+                  {esAdmin && equipoSeleccionado && (
+                    <div
+                      style={{
+                        backgroundColor: "#111827",
+                        padding: "12px",
+                        borderRadius: "8px",
+                        border: "1px solid #4b5563",
+                      }}
+                    >
+                      <h4
+                        style={{
+                          marginTop: 0,
+                          color: "#f59e0b",
+                          marginBottom: "6px",
+                          fontSize: "14px",
+                        }}
+                      >
+                        🔑 Habilitar Entrenadores para esta Categoría
+                      </h4>
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "6px",
+                          maxHeight: "140px",
+                          overflowY: "auto",
+                          backgroundColor: "#1f2937",
+                          padding: "8px",
+                          borderRadius: "6px",
+                        }}
+                      >
+                        {listaTodosLosProfes
+                          .filter(
+                            (p) => p.rol !== "admin" && p.rol !== "coordinador"
+                          )
+                          .map((profe) => {
+                            const tieneAcceso =
+                              profe.categoriasPermitidas?.includes(
+                                equipoSeleccionado
+                              ) ||
+                              profe.categoriesPermitidas?.includes(
+                                equipoSeleccionado
+                              );
+                            return (
+                              <div
+                                key={profe.id}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  backgroundColor: "#374151",
+                                  padding: "4px 8px",
+                                  borderRadius: "4px",
+                                }}
+                              >
+                                <span style={{ fontSize: "13px" }}>
+                                  👤{" "}
+                                  {profe.identificador ||
+                                    profe.email?.split("@")[0]}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    alternarPermisoCategoria(
+                                      profe.id,
+                                      equipoSeleccionado,
+                                      tieneAcceso
+                                    )
+                                  }
+                                  style={{
+                                    padding: "3px 8px",
+                                    borderRadius: "4px",
+                                    border: "none",
+                                    fontSize: "11px",
+                                    fontWeight: "bold",
+                                    cursor: "pointer",
+                                    backgroundColor: tieneAcceso
+                                      ? "#dc2626"
+                                      : "#10b981",
+                                    color: "white",
+                                  }}
+                                >
+                                  {tieneAcceso ? "Quitar Acceso" : "Habilitar"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
                   )}
 
                   <div
@@ -1545,6 +1556,7 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* Configuración Estructural */}
                   <div
                     style={{
                       backgroundColor: "#111827",
@@ -1559,7 +1571,7 @@ export default function App() {
                         marginBottom: "8px",
                       }}
                     >
-                      🎛️ Configurar Botonera Personalizada
+                      🎛️ Configurar Botonera Estructural
                     </h4>
                     <form
                       onSubmit={agregarNuevoBoton}
@@ -1859,7 +1871,7 @@ export default function App() {
                     marginBottom: "16px",
                   }}
                 >
-                  🏑 INICIAR ENCUENTRO
+                  🏑 CONFIGURAR PARTIDO
                 </h2>
                 <form
                   onSubmit={comenzarPartidoEnBaseDeDatos}
@@ -1878,7 +1890,7 @@ export default function App() {
                         fontWeight: "bold",
                       }}
                     >
-                      Categoría de Juego:
+                      Categoría:
                     </label>
                     <select
                       value={equipoSeleccionado}
@@ -1927,7 +1939,7 @@ export default function App() {
                             color: "#9ca3af",
                           }}
                         >
-                          Fecha:
+                          Fecha del Partido:
                         </label>
                         <input
                           type="date"
@@ -2273,7 +2285,7 @@ export default function App() {
           )}
         </div>
       ) : (
-        /* ---------------- PARTIDO ACTIVO ---------------- */
+        /* ---------------- PARTIDO ACTIVO (MODO CANCHA) ---------------- */
         <div>
           <div
             style={{
@@ -2328,7 +2340,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* CELULAR */}
+          {/* TELEFONO */}
           {vista === "telefono" && (
             <div
               style={{
@@ -2649,8 +2661,8 @@ export default function App() {
                     }}
                   >
                     {botonActivoSubmenu.modoResta
-                      ? "(-) Solo General"
-                      : "(+) Solo General"}
+                      ? "(-) General"
+                      : "(+) General"}
                   </button>
                   {(botonActivoSubmenu.subetiquetas || []).map(
                     (sub: string) => {
@@ -2814,27 +2826,6 @@ export default function App() {
           {/* PC */}
           {vista === "computadora" && (
             <div style={{ maxWidth: "950px", margin: "0 auto" }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  marginBottom: "12px",
-                }}
-              >
-                <button
-                  onClick={() => exportarAExcel(null)}
-                  style={{
-                    padding: "10px 20px",
-                    backgroundColor: "#16a34a",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "8px",
-                    cursor: "pointer",
-                  }}
-                >
-                  📥 Excel (.xlsx)
-                </button>
-              </div>
               <table
                 style={{
                   width: "100%",
