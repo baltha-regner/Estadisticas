@@ -32,7 +32,7 @@ const PALETA_COLORES = [
   { nombre: "Gris Neutro", hex: "#4b5563" },
 ];
 
-// Estructura base por si el profe no configuró nada todavía
+// Estructura base inicial adaptada para el nuevo motor de subetiquetas estilo LongoMatch
 const BOTONES_POR_DEFECTO = [
   {
     id: "goles_menu",
@@ -40,23 +40,50 @@ const BOTONES_POR_DEFECTO = [
     color: "#d97706",
     orden: 0,
     esGol: true,
+    subetiquetas: [],
   },
   {
     id: "ingresos_area_favor",
     nombre: "Área Favor",
     color: "#15803d",
     orden: 1,
+    subetiquetas: ["Conducción", "Pegada", "Desborde"],
   },
   {
     id: "ingresos_area_contra",
     nombre: "Área Contra",
     color: "#b91c1c",
     orden: 2,
+    subetiquetas: ["Fondo", "Centro", "Contragolpe"],
   },
-  { id: "tiros_favor", nombre: "Tiro Favor", color: "#166534", orden: 3 },
-  { id: "tiros_contra", nombre: "Tiro Contra", color: "#991b1b", orden: 4 },
-  { id: "cortos_favor", nombre: "Corto Favor", color: "#059669", orden: 5 },
-  { id: "cortos_contra", nombre: "Corto Contra", color: "#e11d48", orden: 6 },
+  {
+    id: "tiros_favor",
+    nombre: "Tiro Favor",
+    color: "#166534",
+    orden: 3,
+    subetiquetas: ["Pegada", "Barrida", "Desvío"],
+  },
+  {
+    id: "tiros_contra",
+    nombre: "Tiro Contra",
+    color: "#991b1b",
+    orden: 4,
+    subetiquetas: ["Pegada", "Barrida", "Desvío"],
+  },
+  {
+    id: "cortos_favor",
+    nombre: "Corto Favor",
+    color: "#059669",
+    orden: 5,
+    subetiquetas: ["Directo", "Jugada", "Rebote"],
+  },
+  {
+    id: "cortos_contra",
+    nombre: "Corto Contra",
+    color: "#e11d48",
+    orden: 6,
+    subetiquetas: ["Directo", "Jugada", "Rebote"],
+  },
 ];
 
 const CATEGORIAS_SISTEMA = [
@@ -101,7 +128,16 @@ export default function App() {
   const [nuevoBtnNombre, setNuevoBtnNombre] = useState<string>("");
   const [nuevoBtnColor, setNuevoBtnColor] = useState<string>("#4b5563");
 
+  // Estado para la carga de subetiquetas en el Panel de Control
+  const [textoNuevaSubetiqueta, setTextoNuevaSubetiqueta] = useState<{
+    [key: string]: string;
+  }>({});
+
+  // --- ESTADOS PARA MODALES FLOTANTES EN PARTIDO ---
   const [mostrarSubmenuGol, setMostrarSubmenuGol] = useState<boolean>(false);
+  const [botonActivoSubmenu, setBotonActivoSubmenu] = useState<any | null>(
+    null
+  );
 
   // Estados de Configuración del Partido
   const [partidoIniciado, setPartidoIniciado] = useState<boolean>(false);
@@ -146,7 +182,7 @@ export default function App() {
     return () => clearInterval(idIntervalo.current);
   }, [corriendo]);
 
-  // --- LÓGICA DE EVENTOS EN TIEMPO REAL CON FIREBASE ---
+  // --- ESCUCHA EN VIVO FIREBASE ---
   useEffect(() => {
     if (partidoIniciado && idPartido) {
       const desuscribirPartido = onSnapshot(
@@ -154,9 +190,7 @@ export default function App() {
         (docSnap) => {
           if (docSnap.exists()) {
             const datos = docSnap.data();
-            if (datos.estadisticas) {
-              setEstadisticas(datos.estadisticas);
-            }
+            if (datos.estadisticas) setEstadisticas(datos.estadisticas);
           }
         }
       );
@@ -243,9 +277,7 @@ export default function App() {
       partidosFiltrados.sort((a, b) => b.fecha.localeCompare(a.fecha));
       setListaPartidosViejos(partidosFiltrados);
 
-      if (perfil.rol === "coordinador") {
-        obtenerListaProfesDeFirestore();
-      }
+      if (perfil.rol === "coordinador") obtenerListaProfesDeFirestore();
     } catch (e) {
       console.error(e);
     }
@@ -265,43 +297,82 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (perfilUsuario) {
-      cargarDatosClub(perfilUsuario);
-    }
+    if (perfilUsuario) cargarDatosClub(perfilUsuario);
   }, [perfilUsuario]);
 
-  // --- MANEJADORES DE SUMA Y RESTA (CON CONTROLES DE ERRORES) ---
-  const manejarSuma = async (metricaId: string) => {
-    if (!idPartido) return;
-    try {
-      const partidoRef = doc(db, "partidos_club", idPartido);
-      await updateDoc(partidRef, {
-        [`estadisticas.${cuartoActual}.${metricaId}`]: increment(1),
-      });
-    } catch (err) {
-      console.error("Error al sumar métrica:", err);
+  // --- GESTIÓN DE SESIÓN E HISTORIAL ---
+  const cerrarSesion = () => {
+    signOut(auth);
+  };
+
+  const finalizarPartido = () => {
+    if (window.confirm("¿Querés cerrar la mesa de control de este partido?")) {
+      setPartidoIniciado(false);
+      setCorriendo(false);
+      setSegundos(0);
+      setIdPartido("");
+      if (perfilUsuario) cargarDatosClub(perfilUsuario);
     }
   };
 
-  const manejarResta = async (metricaId: string) => {
-    if (!idPartido) return;
-    const valorActual = estadisticas[cuartoActual]?.[metricaId] || 0;
-    if (valorActual <= 0) return; // No permitir números negativos
+  const eliminarPartidoHistorial = async (idPart: string) => {
+    if (
+      !window.confirm("¿Seguro que querés borrar permanentemente este partido?")
+    )
+      return;
     try {
-      const partidoRef = doc(db, "partidos_club", idPartido);
-      await updateDoc(partidRef, {
-        [`estadisticas.${cuartoActual}.${metricaId}`]: increment(-1),
-      });
+      await deleteDoc(doc(db, "partidos_club", idPart));
+      setPartidoHistorialSeleccionado(null);
+      if (perfilUsuario) cargarDatosClub(perfilUsuario);
     } catch (err) {
-      console.error("Error al restar métrica:", err);
+      console.error(err);
     }
   };
 
-  const calcularTotal = (metricaId: string, statsPersonalizadas?: any) => {
+  // --- ENGINE DE REGISTRO CON DESGLOSE DE SUBETIQUETAS ---
+  const manejarSumaMétrica = async (
+    metricaId: string,
+    subetiquetaNombre?: string
+  ) => {
+    if (!idPartido) return;
+    const campoFinal = subetiquetaNombre
+      ? `${metricaId}__${subetiquetaNombre.toLowerCase().replace(/ /g, "_")}`
+      : metricaId;
+    try {
+      const partidoRef = doc(db, "partidos_club", idPartido);
+      await updateDoc(partidoRef, {
+        [`estadisticas.${cuartoActual}.${campoFinal}`]: increment(1),
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const manejarRestaMétrica = async (
+    metricaId: string,
+    subetiquetaNombre?: string
+  ) => {
+    if (!idPartido) return;
+    const campoFinal = subetiquetaNombre
+      ? `${metricaId}__${subetiquetaNombre.toLowerCase().replace(/ /g, "_")}`
+      : metricaId;
+    const valorActual = estadisticas[cuartoActual]?.[campoFinal] || 0;
+    if (valorActual <= 0) return;
+    try {
+      const partidoRef = doc(db, "partidos_club", idPartido);
+      await updateDoc(partidoRef, {
+        [`estadisticas.${cuartoActual}.${campoFinal}`]: increment(-1),
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const calcularTotalMétrica = (campoId: string, statsPersonalizadas?: any) => {
     const fuente = statsPersonalizadas || estadisticas;
     let total = 0;
     ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
-      total += fuente?.[q]?.[metricaId] || 0;
+      total += fuente?.[q]?.[campoId] || 0;
     });
     return total;
   };
@@ -312,7 +383,6 @@ export default function App() {
     setJugadorasDelEquipo(equipo ? equipo.jugadoras : []);
     setTitulares([]);
     setSuplentes([]);
-
     const btns =
       equipo?.botones && equipo.botones.length > 0
         ? [...equipo.botones].sort((a, b) => a.orden - b.orden)
@@ -327,11 +397,10 @@ export default function App() {
   ) => {
     try {
       const profeRef = doc(db, "usuarios", idProfe);
-      if (tienePermiso) {
+      if (tienePermiso)
         await updateDoc(profeRef, { categoriasPermitidas: arrayRemove(idCat) });
-      } else {
+      else
         await updateDoc(profeRef, { categoriasPermitidas: arrayUnion(idCat) });
-      }
       await obtenerListaProfesDeFirestore();
     } catch (err) {
       console.error(err);
@@ -344,14 +413,36 @@ export default function App() {
       const eqRef = doc(db, "equipos_club", equipoSeleccionado);
       await updateDoc(eqRef, { botones: nuevosBotones });
       setBotonesDinamicos(nuevosBotones.sort((a, b) => a.orden - b.orden));
-      setListaEquipos((prev) =>
-        prev.map((eq) =>
-          eq.id === equipoSeleccionado ? { ...eq, botones: nuevosBotones } : eq
-        )
-      );
     } catch (err) {
       console.error(err);
     }
+  };
+
+  // --- ADICIÓN DE SUBETIQUETAS ESTILO LONGOMATCH ---
+  const agregarSubetiquetaA_Boton = (btnId: string) => {
+    const texto = textoNuevaSubetiqueta[btnId]?.trim();
+    if (!texto) return;
+    const listaActualizada = botonesDinamicos.map((b) => {
+      if (b.id === btnId)
+        return { ...b, subetiquetas: [...(b.subetiquetas || []), texto] };
+      return b;
+    });
+    guardarBotonesEnFirestore(listaActualizada);
+    setTextoNuevaSubetiqueta((prev) => ({ ...prev, [btnId]: "" }));
+  };
+
+  const eliminarSubetiquetaDe_Boton = (btnId: string, subNombre: string) => {
+    const listaActualizada = botonesDinamicos.map((b) => {
+      if (b.id === btnId)
+        return {
+          ...b,
+          subetiquetas: (b.subetiquetas || []).filter(
+            (s: string) => s !== subNombre
+          ),
+        };
+      return b;
+    });
+    guardarBotonesEnFirestore(listaActualizada);
   };
 
   const agregarNuevoBoton = (e: React.FormEvent) => {
@@ -367,9 +458,9 @@ export default function App() {
       nombre: nuevoBtnNombre,
       color: nuevoBtnColor,
       orden: botonesDinamicos.length,
+      subetiquetas: [],
     };
-    const listaActualizada = [...botonesDinamicos, nuevoObj];
-    guardarBotonesEnFirestore(listaActualizada);
+    guardarBotonesEnFirestore([...botonesDinamicos, nuevoObj]);
     setNuevoBtnNombre("");
   };
 
@@ -389,8 +480,7 @@ export default function App() {
     const temp = nuevaLista[index];
     nuevaLista[index] = nuevaLista[objetivoIdx];
     nuevaLista[objetivoIdx] = temp;
-    const listaCorregida = nuevaLista.map((b, i) => ({ ...b, orden: i }));
-    guardarBotonesEnFirestore(listaCorregida);
+    guardarBotonesEnFirestore(nuevaLista.map((b, i) => ({ ...b, orden: i })));
   };
 
   const manejarLoginClub = async (e: React.FormEvent) => {
@@ -399,9 +489,7 @@ export default function App() {
     const userClean = identificadorProfe.trim().toLowerCase();
     if (!userClean || !password.trim())
       return setErrorAuth("Completa los datos de acceso");
-
     const emailSimulado = `${userClean}@talleres.com`;
-
     try {
       await signInWithEmailAndPassword(auth, emailSimulado, password);
     } catch (error: any) {
@@ -416,27 +504,21 @@ export default function App() {
             password
           );
           const esCoord = userClean === "coordinador";
-
           const nuevoPerfil = {
             email: emailSimulado,
             identificador: userClean,
             rol: esCoord ? "coordinador" : "entrenador",
             categoriasPermitidas: esCoord ? [] : ["sub14"],
           };
-
           await setDoc(doc(db, "usuarios", credencial.user.uid), nuevoPerfil);
           setPerfilUsuario(nuevoPerfil);
         } catch (crearErr) {
-          setErrorAuth("Contraseña incorrecta o error de conexión.");
+          setErrorAuth("Error de red o contraseña inválida.");
         }
       } else {
         setErrorAuth("Usuario o contraseña incorrectos.");
       }
     }
-  };
-
-  const cerrarSesion = async () => {
-    await signOut(auth);
   };
 
   const crearNuevoEquipo = async (e: React.FormEvent) => {
@@ -555,6 +637,10 @@ export default function App() {
     ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
       botonesDinamicos.forEach((b) => {
         estructuraInicialEstadisticas[q][b.id] = 0;
+        (b.subetiquetas || []).forEach((s: string) => {
+          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
+          estructuraInicialEstadisticas[q][subId] = 0;
+        });
       });
       estructuraInicialEstadisticas[q]["goles_favor"] = 0;
       estructuraInicialEstadisticas[q]["goles_contra"] = 0;
@@ -587,32 +673,6 @@ export default function App() {
     setPartidoIniciado(true);
   };
 
-  const eliminarPartidoHistorial = async (idPart: string) => {
-    if (
-      !window.confirm(
-        "¿Estás seguro de que querés borrar permanentemente este partido del historial?"
-      )
-    )
-      return;
-    try {
-      await deleteDoc(doc(db, "partidos_club", idPart));
-      setPartidoHistorialSeleccionado(null);
-      if (perfilUsuario) cargarDatosClub(perfilUsuario);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const finalizarPartido = () => {
-    if (window.confirm("¿Querés cerrar la mesa de este partido?")) {
-      setPartidoIniciado(false);
-      setCorriendo(false);
-      setSegundos(0);
-      setIdPartido("");
-      if (perfilUsuario) cargarDatosClub(perfilUsuario);
-    }
-  };
-
   const exportarAExcel = async (partidoEspecifico: any = null) => {
     const pTarget = partidoEspecifico || {
       rival,
@@ -623,6 +683,7 @@ export default function App() {
       estadisticas,
       configuracion_botones: botonesDinamicos,
     };
+    const btnsFicha = pTarget.configuracion_botones || BOTONES_POR_DEFECTO;
     try {
       const ExcelJS = await import("exceljs");
       const workbook = new ExcelJS.Workbook();
@@ -632,13 +693,14 @@ export default function App() {
         { width: 22 },
         { width: 5 },
         { width: 22 },
-        { width: 15 },
+        { width: 18 },
         { width: 15 },
         { width: 15 },
         { width: 15 },
       ];
 
       const fontNegrita = { name: "Calibri", bold: true, size: 11 };
+      const fontNormal = { name: "Calibri", size: 11 };
       const borderFino = {
         top: { style: "thin" as any },
         left: { style: "thin" as any },
@@ -670,7 +732,6 @@ export default function App() {
       worksheet.getCell("F3").value = pTarget.fecha || "";
       worksheet.getCell("G3").value = "Cancha:";
       worksheet.getCell("H3").value = pTarget.cancha || "";
-
       ["A3", "B3", "C3", "D3", "E3", "F3", "G3", "H3"].forEach((c) => {
         worksheet.getCell(c).font = fontNegrita;
         worksheet.getCell(c).border = borderFino;
@@ -714,48 +775,106 @@ export default function App() {
       worksheet.getCell("D18").value = "OBJETIVOS DEFENSIVOS";
       worksheet.getCell("D18").font = fontNegrita;
 
-      worksheet.getRow(21).height = 22;
-      const headersTabla = [
-        { c: "A21", v: "Cuarto" },
-        { c: "B21", v: "Ingresos área" },
-        { c: "C21", v: "Tiros" },
-        { c: "D21", v: "Pérdidas" },
-        { c: "E21", v: "Cortos Favor" },
-        { c: "F21", v: "Cortos Contra" },
-        { c: "G21", v: "Goles" },
+      let filaActualTabla = 21;
+      worksheet.getRow(filaActualTabla).height = 22;
+      const headers = [
+        "Métrica / Descriptor",
+        "1° Cuarto",
+        "2° Cuarto",
+        "3° Cuarto",
+        "4° Cuarto",
+        "TOTAL",
+        "",
+        "",
       ];
-      headersTabla.forEach((h) => {
-        worksheet.getCell(h.c).value = h.v;
-        worksheet.getCell(h.c).font = fontNegrita;
-        worksheet.getCell(h.c).alignment = alinearCentro;
-        worksheet.getCell(h.c).border = borderFino;
+      headers.forEach((h, idx) => {
+        if (idx < 6) {
+          const c = worksheet.getCell(
+            `${String.fromCharCode(65 + idx)}${filaActualTabla}`
+          );
+          c.value = h;
+          c.font = fontNegrita;
+          c.alignment = alinearCentro;
+          c.border = borderFino;
+        }
       });
 
-      const mapeoMetricas = [
-        { col: "B", id: "ingresos_area_favor" },
-        { col: "C", id: "tiros_favor" },
-        { col: "D", id: "perdidas" },
-        { col: "E", id: "cortos_favor" },
-        { col: "F", id: "cortos_contra" },
-        { col: "G", id: "goles_favor" },
-      ];
-      const cuartosKeys = ["1Q", "2Q", "3Q", "4Q"];
-      const cuartosEtiquetas = ["1°", "2°", "3°", "4°"];
-
-      cuartosKeys.forEach((qKey, idx) => {
-        const filaW = 22 + idx;
-        worksheet.getRow(filaW).height = 20;
-        worksheet.getCell(`A${filaW}`).value = cuartosEtiquetas[idx];
-        worksheet.getCell(`A${filaW}`).border = borderFino;
-        worksheet.getCell(`A${filaW}`).alignment = alinearCentro;
-        mapeoMetricas.forEach((m) => {
-          worksheet.getCell(`${m.col}${filaW}`).value =
-            pTarget.estadisticas?.[qKey]?.[m.id] || 0;
-          worksheet.getCell(`${m.col}${filaW}`).border = borderFino;
-          worksheet.getCell(`${m.col}${filaW}`).alignment = alinearCentro;
+      const inyectarFilaFija = (label: string, idCampo: string) => {
+        filaActualTabla++;
+        worksheet.getRow(filaActualTabla).height = 20;
+        const cL = worksheet.getCell(`A${filaActualTabla}`);
+        cL.value = label;
+        cL.font = fontNegrita;
+        cL.border = borderFino;
+        ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
+          const c = worksheet.getCell(
+            `${String.fromCharCode(66 + i)}${filaActualTabla}`
+          );
+          c.value = pTarget.estadisticas?.[q]?.[idCampo] || 0;
+          c.border = borderFino;
+          c.alignment = alinearCentro;
         });
-      });
+        const cT = worksheet.getCell(`F${filaActualTabla}`);
+        cT.value = calcularTotalMétrica(idCampo, pTarget.estadisticas);
+        cT.font = fontNegrita;
+        cT.border = borderFino;
+        cT.alignment = alinearCentro;
+      };
 
+      inyectarFilaFija("⚽ Goles a Favor (CAT)", "goles_favor");
+      inyectarFilaFija("⚽ Goles en Contra (Rival)", "goles_contra");
+
+      btnsFicha
+        .filter((b: any) => !b.esGol)
+        .forEach((btn: any) => {
+          filaActualTabla++;
+          worksheet.getRow(filaActualTabla).height = 20;
+          const cL = worksheet.getCell(`A${filaActualTabla}`);
+          cL.value = btn.nombre.toUpperCase();
+          cL.font = fontNegrita;
+          cL.border = borderFino;
+          ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
+            const c = worksheet.getCell(
+              `${String.fromCharCode(66 + i)}${filaActualTabla}`
+            );
+            c.value = pTarget.estadisticas?.[q]?.[btn.id] || 0;
+            c.border = borderFino;
+            c.alignment = alinearCentro;
+          });
+          const cT = worksheet.getCell(`F${filaActualTabla}`);
+          cT.value = calcularTotalMétrica(btn.id, pTarget.estadisticas);
+          cT.font = fontNegrita;
+          cT.border = borderFino;
+          cT.alignment = alinearCentro;
+
+          (btn.subetiquetas || []).forEach((sub: string) => {
+            filaActualTabla++;
+            worksheet.getRow(filaActualTabla).height = 18;
+            const subId = `${btn.id}__${sub.toLowerCase().replace(/ /g, "_")}`;
+            const cSubL = worksheet.getCell(`A${filaActualTabla}`);
+            cSubL.value = `   ↳ ${sub}`;
+            cSubL.font = fontNormal;
+            cSubL.border = borderFino;
+            ["1Q", "2Q", "3Q", "4Q"].forEach((q, i) => {
+              const c = worksheet.getCell(
+                `${String.fromCharCode(66 + i)}${filaActualTabla}`
+              );
+              c.value = pTarget.estadisticas?.[q]?.[subId] || 0;
+              c.border = borderFino;
+              c.alignment = alinearCentro;
+            });
+            const cSubT = worksheet.getCell(`F${filaActualTabla}`);
+            cSubT.value = calcularTotalMétrica(subId, pTarget.estadisticas);
+            cSubT.font = fontNegrita;
+            cSubT.border = borderFino;
+            cSubT.alignment = alinearCentro;
+          });
+        });
+
+      const nombreCategoria =
+        pTarget.categoria ||
+        listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
+        "Categoría";
       const buffer = await workbook.xlsx.writeBuffer();
       const blob = new Blob([buffer], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -763,7 +882,9 @@ export default function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `Planilla_${pTarget.fecha}_vs_${pTarget.rival}.xlsx`;
+      link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
+        pTarget.fecha
+      }.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -789,7 +910,6 @@ export default function App() {
     );
   }
 
-  // --- FORMULARIO DE LOGIN ---
   if (!usuario) {
     return (
       <div
@@ -836,7 +956,6 @@ export default function App() {
           >
             Análisis Colaborativo de Partidos
           </p>
-
           <form
             onSubmit={manejarLoginClub}
             style={{ display: "flex", flexDirection: "column", gap: "14px" }}
@@ -904,7 +1023,6 @@ export default function App() {
                 fontWeight: "bold",
                 fontSize: "15px",
                 cursor: "pointer",
-                marginTop: "6px",
               }}
             >
               🔑 Ingresar a la Mesa
@@ -1144,7 +1262,7 @@ export default function App() {
                             Goles Favor
                           </td>
                           <td style={{ textAlign: "center" }}>
-                            {calcularTotal(
+                            {calcularTotalMétrica(
                               "goles_favor",
                               partidoHistorialSeleccionado.estadisticas
                             )}
@@ -1155,7 +1273,7 @@ export default function App() {
                             Goles Contra
                           </td>
                           <td style={{ textAlign: "center" }}>
-                            {calcularTotal(
+                            {calcularTotalMétrica(
                               "goles_contra",
                               partidoHistorialSeleccionado.estadisticas
                             )}
@@ -1167,29 +1285,64 @@ export default function App() {
                         )
                           .filter((b: any) => !b.esGol)
                           .map((btn: any) => (
-                            <tr key={btn.id}>
-                              <td
-                                style={{
-                                  border: "1px solid #334155",
-                                  padding: "6px",
-                                }}
-                              >
-                                {btn.nombre}
-                              </td>
-                              <td
-                                style={{
-                                  border: "1px solid #334155",
-                                  padding: "6px",
-                                  textAlign: "center",
-                                  fontWeight: "bold",
-                                }}
-                              >
-                                {calcularTotal(
-                                  btn.id,
-                                  partidoHistorialSeleccionado.estadisticas
-                                )}
-                              </td>
-                            </tr>
+                            <React.Fragment key={btn.id}>
+                              <tr style={{ backgroundColor: "#1e293b" }}>
+                                <td
+                                  style={{
+                                    border: "1px solid #334155",
+                                    padding: "6px",
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {btn.nombre.toUpperCase()}
+                                </td>
+                                <td
+                                  style={{
+                                    border: "1px solid #334155",
+                                    padding: "6px",
+                                    textAlign: "center",
+                                    fontWeight: "bold",
+                                  }}
+                                >
+                                  {calcularTotalMétrica(
+                                    btn.id,
+                                    partidoHistorialSeleccionado.estadisticas
+                                  )}
+                                </td>
+                              </tr>
+                              {(btn.subetiquetas || []).map((sub: string) => {
+                                const subId = `${btn.id}__${sub
+                                  .toLowerCase()
+                                  .replace(/ /g, "_")}`;
+                                return (
+                                  <tr key={subId}>
+                                    <td
+                                      style={{
+                                        border: "1px solid #334155",
+                                        padding: "4px 6px",
+                                        color: "#9ca3af",
+                                        paddingLeft: "20px",
+                                      }}
+                                    >
+                                      ↳ {sub}
+                                    </td>
+                                    <td
+                                      style={{
+                                        border: "1px solid #334155",
+                                        padding: "4px",
+                                        textAlign: "center",
+                                        color: "#9ca3af",
+                                      }}
+                                    >
+                                      {calcularTotalMétrica(
+                                        subId,
+                                        partidoHistorialSeleccionado.estadisticas
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
                           ))}
                       </tbody>
                     </table>
@@ -1199,7 +1352,7 @@ export default function App() {
             </div>
           )}
 
-          {/* MODO PANEL ADMIN */}
+          {/* PANEL ADMIN (CON PANEL ESTILO LONGOMATCH) */}
           {modoAdmin && (
             <div
               style={{
@@ -1254,7 +1407,7 @@ export default function App() {
                         marginBottom: "8px",
                       }}
                     >
-                      📋 Habilitar Permisos Cruzados a Profes
+                      📋 Permisos Cruzados a Profes
                     </h4>
                     <div
                       style={{
@@ -1385,8 +1538,8 @@ export default function App() {
                     style={{
                       display: "flex",
                       flexDirection: "column",
-                      gap: "6px",
-                      maxHeight: "180px",
+                      gap: "15px",
+                      maxHeight: "150px",
                       overflowY: "auto",
                       backgroundColor: "#1f2937",
                       padding: "8px",
@@ -1405,98 +1558,27 @@ export default function App() {
                           borderRadius: "6px",
                         }}
                       >
-                        {jugadoraEditando === j ? (
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: "6px",
-                              width: "100%",
-                            }}
-                          >
-                            <input
-                              type="text"
-                              value={nuevoNombreEditado}
-                              onChange={(e) =>
-                                setNuevoNombreEditado(e.target.value)
-                              }
-                              style={
-                                {
-                                  ...estiloInput,
-                                  padding: "4px 8px",
-                                  fontSize: "13px",
-                                } as any
-                              }
-                            />
-                            <button
-                              type="button"
-                              onClick={() => modificarNombreJugadora(j)}
-                              style={{
-                                backgroundColor: "#10b981",
-                                border: "none",
-                                borderRadius: "4px",
-                                color: "white",
-                                padding: "4px 10px",
-                                cursor: "pointer",
-                              }}
-                            >
-                              💾
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setJugadoraEditando(null)}
-                              style={{
-                                backgroundColor: "#6b7280",
-                                border: "none",
-                                borderRadius: "4px",
-                                color: "white",
-                                padding: "4px 10px",
-                                cursor: "pointer",
-                              }}
-                            >
-                              ❌
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: "13px" }}>{j}</span>
-                            <div style={{ display: "flex", gap: "10px" }}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setJugadoraEditando(j);
-                                  setNuevoNombreEditado(j);
-                                }}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  color: "#60a5fa",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => eliminarJugadoraIndividual(j)}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  color: "#f87171",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                ×
-                              </button>
-                            </div>
-                          </>
-                        )}
+                        <span>{j}</span>
+                        <button
+                          type="button"
+                          onClick={() => eliminarJugadoraIndividual(j)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#f87171",
+                            cursor: "pointer",
+                            fontWeight: "bold",
+                          }}
+                        >
+                          ×
+                        </button>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Botonera */}
+              {/* EDICIÓN DE BOTONERA Y SUBETIQUETAS ESTILO LONGOMATCH */}
               {equipoSeleccionado && (
                 <div
                   style={{
@@ -1512,7 +1594,7 @@ export default function App() {
                       marginBottom: "8px",
                     }}
                   >
-                    🎛️ Configurar Botones
+                    🎛️ Configurar Botones y Subcategorías
                   </h4>
                   <form
                     onSubmit={agregarNuevoBoton}
@@ -1526,7 +1608,7 @@ export default function App() {
                       type="text"
                       value={nuevoBtnNombre}
                       onChange={(e) => setNuevoBtnNombre(e.target.value)}
-                      placeholder="Métrica"
+                      placeholder="Nueva Métrica Principal"
                       style={estiloInput as any}
                     />
                     <select
@@ -1553,12 +1635,13 @@ export default function App() {
                       ➕
                     </button>
                   </form>
+
                   <div
                     style={{
                       display: "flex",
                       flexDirection: "column",
-                      gap: "6px",
-                      maxHeight: "150px",
+                      gap: "12px",
+                      maxHeight: "250px",
                       overflowY: "auto",
                     }}
                   >
@@ -1566,40 +1649,147 @@ export default function App() {
                       <div
                         key={btn.id}
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
                           backgroundColor: "#1f2937",
-                          padding: "6px",
-                          borderRadius: "4px",
-                          borderLeft: `4px solid ${btn.color}`,
+                          padding: "10px",
+                          borderRadius: "6px",
+                          borderLeft: `5px solid ${btn.color}`,
                         }}
                       >
-                        <span style={{ fontSize: "13px" }}>{btn.nombre}</span>
-                        <div style={{ display: "flex", gap: "3px" }}>
-                          <button
-                            type="button"
-                            onClick={() => moverOrdenBoton(idx, "subir")}
-                            disabled={idx === 0}
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: "6px",
+                          }}
+                        >
+                          <span
+                            style={{ fontWeight: "bold", fontSize: "13px" }}
                           >
-                            🔼
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moverOrdenBoton(idx, "bajar")}
-                            disabled={idx === botonesDinamicos.length - 1}
-                          >
-                            🔽
-                          </button>
-                          {!btn.esGol && (
+                            {btn.nombre} {btn.esGol && "⭐"}
+                          </span>
+                          <div style={{ display: "flex", gap: "3px" }}>
                             <button
                               type="button"
-                              onClick={() => eliminarBotonDinamico(btn.id)}
-                              style={{ color: "#f87171" }}
+                              onClick={() => moverOrdenBoton(idx, "subir")}
+                              disabled={idx === 0}
                             >
-                              ❌
+                              🔼
                             </button>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() => moverOrdenBoton(idx, "bajar")}
+                              disabled={idx === botonesDinamicos.length - 1}
+                            >
+                              🔽
+                            </button>
+                            {!btn.esGol && (
+                              <button
+                                type="button"
+                                onClick={() => eliminarBotonDinamico(btn.id)}
+                                style={{
+                                  color: "#f87171",
+                                  border: "none",
+                                  background: "none",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ❌
+                              </button>
+                            )}
+                          </div>
                         </div>
+
+                        {!btn.esGol && (
+                          <div
+                            style={{
+                              backgroundColor: "#111827",
+                              padding: "6px",
+                              borderRadius: "4px",
+                              marginTop: "4px",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: "4px",
+                                marginBottom: "6px",
+                              }}
+                            >
+                              {(btn.subetiquetas || []).map((sub: string) => (
+                                <span
+                                  key={sub}
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                    backgroundColor: "#374151",
+                                    padding: "2px 6px",
+                                    borderRadius: "4px",
+                                    fontSize: "11px",
+                                    color: "#e5e7eb",
+                                  }}
+                                >
+                                  {sub}
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      eliminarSubetiquetaDe_Boton(btn.id, sub)
+                                    }
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      color: "#f87171",
+                                      cursor: "pointer",
+                                      padding: 0,
+                                      fontWeight: "bold",
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                            <div style={{ display: "flex", gap: "4px" }}>
+                              <input
+                                type="text"
+                                value={textoNuevaSubetiqueta[btn.id] || ""}
+                                onChange={(e) =>
+                                  setTextoNuevaSubetiqueta({
+                                    ...textoNuevaSubetiqueta,
+                                    [btn.id]: e.target.value,
+                                  })
+                                }
+                                placeholder="Añadir etiqueta nueva..."
+                                style={
+                                  {
+                                    ...estiloInput,
+                                    padding: "4px 8px",
+                                    fontSize: "12px",
+                                  } as any
+                                }
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  agregarSubetiquetaA_Boton(btn.id)
+                                }
+                                style={{
+                                  backgroundColor: "#15803d",
+                                  border: "none",
+                                  borderRadius: "4px",
+                                  color: "white",
+                                  padding: "2px 8px",
+                                  fontSize: "12px",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1608,7 +1798,7 @@ export default function App() {
             </div>
           )}
 
-          {/* PARTIDO NUEVO */}
+          {/* PANEL DE CONFIGURACIÓN DE PARTIDO */}
           <div
             style={{
               backgroundColor: "#1f2937",
@@ -1906,7 +2096,7 @@ export default function App() {
                         color: "#f3f4f6",
                       }}
                     >
-                      {calcularTotal("goles_favor")}
+                      {calcularTotalMétrica("goles_favor")}
                     </div>
                   </div>
                   <div
@@ -1936,7 +2126,7 @@ export default function App() {
                         color: "#f3f4f6",
                       }}
                     >
-                      {calcularTotal("goles_contra")}
+                      {calcularTotalMétrica("goles_contra")}
                     </div>
                   </div>
                 </div>
@@ -2023,7 +2213,8 @@ export default function App() {
                 }}
               >
                 {botonesDinamicos.map((btn) => {
-                  const valor = estadisticas[cuartoActual]?.[btn.id] || 0;
+                  const valorPrincipal =
+                    estadisticas[cuartoActual]?.[btn.id] || 0;
                   if (btn.esGol) {
                     return (
                       <button
@@ -2046,6 +2237,15 @@ export default function App() {
                       </button>
                     );
                   }
+
+                  const procesarToquePrincipal = () => {
+                    if (btn.subetiquetas && btn.subetiquetas.length > 0) {
+                      setBotonActivoSubmenu(btn);
+                    } else {
+                      manejarSumaMétrica(btn.id);
+                    }
+                  };
+
                   return (
                     <div
                       key={btn.id}
@@ -2056,10 +2256,11 @@ export default function App() {
                         borderRadius: "10px",
                         overflow: "hidden",
                         border: "1px solid #374151",
+                        boxShadow: "0 4px 6px rgba(0,0,0,0.2)",
                       }}
                     >
                       <button
-                        onClick={() => manejarSuma(btn.id)}
+                        onClick={procesarToquePrincipal}
                         style={{
                           flex: 1,
                           padding: "18px 10px",
@@ -2079,11 +2280,17 @@ export default function App() {
                             marginTop: "4px",
                           }}
                         >
-                          {valor}
+                          {valorPrincipal}
                         </div>
                       </button>
                       <button
-                        onClick={() => manejarResta(btn.id)}
+                        onClick={() => {
+                          if (btn.subetiquetas && btn.subetiquetas.length > 0) {
+                            setBotonActivoSubmenu({ ...btn, modoResta: true });
+                          } else {
+                            manejarRestaMétrica(btn.id);
+                          }
+                        }}
                         style={{
                           padding: "6px",
                           backgroundColor: "#374151",
@@ -2094,11 +2301,161 @@ export default function App() {
                           borderTop: "1px solid #4b5563",
                         }}
                       >
-                        Menos (-)
+                        Desglosar / (-)
                       </button>
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* POP-UP FLOTANTE DE SELECCIÓN DE DESCRIPTORES */}
+          {botonActivoSubmenu && (
+            <div
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                width: "100vw",
+                height: "100vh",
+                backgroundColor: "rgba(0,0,0,0.85)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 9999,
+                padding: "16px",
+              }}
+            >
+              <div
+                style={{
+                  backgroundColor: "#1f2937",
+                  padding: "24px",
+                  borderRadius: "16px",
+                  width: "100%",
+                  maxWidth: "400px",
+                  border: `2px solid ${botonActivoSubmenu.color}`,
+                  textAlign: "center",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "11px",
+                    textTransform: "uppercase",
+                    color: "#9ca3af",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  Descriptor de Evento
+                </span>
+                <h3
+                  style={{
+                    marginTop: "4px",
+                    color: "white",
+                    fontSize: "22px",
+                    marginBottom: "16px",
+                  }}
+                >
+                  {botonActivoSubmenu.modoResta
+                    ? "🗑️ RESTAR ACCIÓN:"
+                    : "📈 REGISTRAR:"}{" "}
+                  {botonActivoSubmenu.nombre}
+                </h3>
+
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      if (botonActivoSubmenu.modoResta)
+                        manejarRestaMétrica(botonActivoSubmenu.id);
+                      else manejarSumaMétrica(botonActivoSubmenu.id);
+                      setBotonActivoSubmenu(null);
+                    }}
+                    style={{
+                      padding: "14px",
+                      borderRadius: "8px",
+                      border: "1px dashed #4b5563",
+                      backgroundColor: "#374151",
+                      color: "white",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {botonActivoSubmenu.modoResta
+                      ? "(-) Solo General"
+                      : "(+) Solo General"}
+                  </button>
+
+                  {(botonActivoSubmenu.subetiquetas || []).map(
+                    (sub: string) => {
+                      const subId = `${botonActivoSubmenu.id}__${sub
+                        .toLowerCase()
+                        .replace(/ /g, "_")}`;
+                      const valorSub = estadisticas[cuartoActual]?.[subId] || 0;
+                      return (
+                        <button
+                          key={sub}
+                          onClick={() => {
+                            if (botonActivoSubmenu.modoResta) {
+                              manejarRestaMétrica(botonActivoSubmenu.id, sub);
+                              manejarRestaMétrica(botonActivoSubmenu.id);
+                            } else {
+                              manejarSumaMétrica(botonActivoSubmenu.id, sub);
+                              manejarSumaMétrica(botonActivoSubmenu.id);
+                            }
+                            setBotonActivoSubmenu(null);
+                          }}
+                          style={{
+                            padding: "16px",
+                            borderRadius: "8px",
+                            border: "none",
+                            backgroundColor: botonActivoSubmenu.modoResta
+                              ? "#991b1b"
+                              : "#2563eb",
+                            color: "white",
+                            fontWeight: "bold",
+                            cursor: "pointer",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span>{sub}</span>
+                          <span
+                            style={{
+                              backgroundColor: "rgba(0,0,0,0.3)",
+                              padding: "2px 8px",
+                              borderRadius: "10px",
+                              fontFamily: "monospace",
+                            }}
+                          >
+                            {valorSub}
+                          </span>
+                        </button>
+                      );
+                    }
+                  )}
+
+                  <button
+                    onClick={() => setBotonActivoSubmenu(null)}
+                    style={{
+                      padding: "10px",
+                      backgroundColor: "#4b5563",
+                      color: "#d1d5db",
+                      border: "none",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      marginTop: "6px",
+                    }}
+                  >
+                    ❌ Cancelar
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -2146,7 +2503,7 @@ export default function App() {
                 >
                   <button
                     onClick={() => {
-                      manejarSuma("goles_favor");
+                      manejarSumaMétrica("goles_favor");
                       setMostrarSubmenuGol(false);
                     }}
                     style={{
@@ -2163,7 +2520,7 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => {
-                      manejarSuma("goles_contra");
+                      manejarSumaMétrica("goles_contra");
                       setMostrarSubmenuGol(false);
                     }}
                     style={{
@@ -2229,7 +2586,7 @@ export default function App() {
               >
                 <thead>
                   <tr>
-                    <th style={estiloCellTh as any}>Métrica</th>
+                    <th style={estiloCellTh as any}>Métrica / Descriptor</th>
                     <th style={estiloCellTh as any}>1Q</th>
                     <th style={estiloCellTh as any}>2Q</th>
                     <th style={estiloCellTh as any}>3Q</th>
@@ -2248,7 +2605,7 @@ export default function App() {
                     <td
                       style={
                         {
-                          ...estiloCellTd,
+                          ...estiloCeldaTd,
                           textAlign: "left",
                           fontWeight: "bold",
                         } as any
@@ -2263,14 +2620,14 @@ export default function App() {
                     <td
                       style={{ backgroundColor: "#047857", fontWeight: "bold" }}
                     >
-                      {calcularTotal("goles_favor")}
+                      {calcularTotalMétrica("goles_favor")}
                     </td>
                   </tr>
                   <tr style={{ backgroundColor: "#7f1d1d" }}>
                     <td
                       style={
                         {
-                          ...estiloCellTd,
+                          ...estiloCeldaTd,
                           textAlign: "left",
                           fontWeight: "bold",
                         } as any
@@ -2285,38 +2642,81 @@ export default function App() {
                     <td
                       style={{ backgroundColor: "#b91c1c", fontWeight: "bold" }}
                     >
-                      {calcularTotal("goles_contra")}
+                      {calcularTotalMétrica("goles_contra")}
                     </td>
                   </tr>
                   {botonesDinamicos
                     .filter((b) => !b.esGol)
                     .map((btn) => (
-                      <tr key={btn.id}>
-                        <td
-                          style={
-                            {
-                              ...estiloCellTd,
-                              textAlign: "left",
+                      <React.Fragment key={btn.id}>
+                        <tr style={{ backgroundColor: "#1e293b" }}>
+                          <td
+                            style={
+                              {
+                                ...estiloCeldaTd,
+                                textAlign: "left",
+                                fontWeight: "bold",
+                                borderLeft: `5px solid ${btn.color}`,
+                              } as any
+                            }
+                          >
+                            {btn.nombre.toUpperCase()}
+                          </td>
+                          <td>{estadisticas["1Q"]?.[btn.id] || 0}</td>
+                          <td>{estadisticas["2Q"]?.[btn.id] || 0}</td>
+                          <td>{estadisticas["3Q"]?.[btn.id] || 0}</td>
+                          <td>{estadisticas["4Q"]?.[btn.id] || 0}</td>
+                          <td
+                            style={{
+                              backgroundColor: "#1e3a8a",
                               fontWeight: "bold",
-                              borderLeft: `5px solid ${btn.color}`,
-                            } as any
-                          }
-                        >
-                          {btn.nombre}
-                        </td>
-                        <td>{estadisticas["1Q"]?.[btn.id] || 0}</td>
-                        <td>{estadisticas["2Q"]?.[btn.id] || 0}</td>
-                        <td>{estadisticas["3Q"]?.[btn.id] || 0}</td>
-                        <td>{estadisticas["4Q"]?.[btn.id] || 0}</td>
-                        <td
-                          style={{
-                            backgroundColor: "#1e3a8a",
-                            fontWeight: "bold",
-                          }}
-                        >
-                          {calcularTotal(btn.id)}
-                        </td>
-                      </tr>
+                            }}
+                          >
+                            {calcularTotalMétrica(btn.id)}
+                          </td>
+                        </tr>
+                        {(btn.subetiquetas || []).map((sub: string) => {
+                          const subId = `${btn.id}__${sub
+                            .toLowerCase()
+                            .replace(/ /g, "_")}`;
+                          return (
+                            <tr key={subId}>
+                              <td
+                                style={
+                                  {
+                                    ...estiloCeldaTd,
+                                    textAlign: "left",
+                                    color: "#9ca3af",
+                                    paddingLeft: "24px",
+                                  } as any
+                                }
+                              >
+                                ↳ {sub}
+                              </td>
+                              <td style={{ color: "#9ca3af" }}>
+                                {estadisticas["1Q"]?.[subId] || 0}
+                              </td>
+                              <td style={{ color: "#9ca3af" }}>
+                                {estadisticas["2Q"]?.[subId] || 0}
+                              </td>
+                              <td style={{ color: "#9ca3af" }}>
+                                {estadisticas["3Q"]?.[subId] || 0}
+                              </td>
+                              <td style={{ color: "#9ca3af" }}>
+                                {estadisticas["4Q"]?.[subId] || 0}
+                              </td>
+                              <td
+                                style={{
+                                  backgroundColor: "#374151",
+                                  color: "#9ca3af",
+                                }}
+                              >
+                                {calcularTotalMétrica(subId)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
                     ))}
                 </tbody>
               </table>
@@ -2339,7 +2739,6 @@ const estiloInput = {
   fontSize: "14px",
   boxSizing: "border-box" as "border-box",
 };
-
 const estiloCellTh = {
   padding: "12px",
   border: "1px solid #374151",
@@ -2348,8 +2747,7 @@ const estiloCellTh = {
   textAlign: "center" as "center",
   fontSize: "13px",
 };
-
-const estiloCellTd = {
+const estiloCeldaTd = {
   padding: "12px",
   border: "1px solid #374151",
   textAlign: "center" as "center",
