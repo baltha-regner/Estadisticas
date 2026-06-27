@@ -242,6 +242,45 @@ export default function App() {
     return () => desuscribirAuth();
   }, []);
 
+  // 🔥 FIJADO: Agregada la función manejarLoginClub faltante para procesar el ingreso de los profes
+  const manejarLoginClub = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorAuth("");
+    const correoSimulado = `${identificadorProfe
+      .trim()
+      .toLowerCase()}@talleres.com`;
+    try {
+      await signInWithEmailAndPassword(auth, correoSimulado, password);
+    } catch (err: any) {
+      console.error(err);
+      if (
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/invalid-credential"
+      ) {
+        try {
+          await createUserWithEmailAndPassword(auth, correoSimulado, password);
+        } catch (crearErr) {
+          setErrorAuth("Credenciales inválidas o error de red.");
+        }
+      } else {
+        setErrorAuth("Error al conectar con el club. Revisá los datos.");
+      }
+    }
+  };
+
+  const obtenerListaProfesDeFirestore = async () => {
+    try {
+      const snapUsers = await getDocs(collection(db, "usuarios"));
+      const profesCargados: any[] = [];
+      snapUsers.forEach((doc) => {
+        profesCargados.push({ id: doc.id, ...doc.data() });
+      });
+      setListaTodosLosProfes(profesCargados);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const cargarDatosClub = async (perfil: any) => {
     if (!perfil) return;
     try {
@@ -292,23 +331,9 @@ export default function App() {
       partidosFiltrados.sort((a, b) => b.fecha.localeCompare(a.fecha));
       setListaPartidosViejos(partidosFiltrados);
 
-      // 🔥 ARREGLADO: Removido el fragmento duplicado roto que bloqueaba la carga de la base de datos
       if (perfil.rol === "admin") obtenerListaProfesDeFirestore();
     } catch (e) {
       console.error(e);
-    }
-  };
-
-  const obtenerListaProfesDeFirestore = async () => {
-    try {
-      const snapUsers = await getDocs(collection(db, "usuarios"));
-      const profesCargados: any[] = [];
-      snapUsers.forEach((doc) => {
-        profesCargados.push({ id: doc.id, ...doc.data() });
-      });
-      setListaTodosLosProfes(profesCargados);
-    } catch (err) {
-      console.error(err);
     }
   };
 
@@ -516,49 +541,72 @@ export default function App() {
     guardarBotonesEnFirestore(nuevaLista.map((b, i) => ({ ...b, orden: i })));
   };
 
-  const manejarLoginClub = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorAuth("");
-    const userClean = identificadorProfe.trim().toLowerCase();
-    if (!userClean || !password.trim())
-      return setErrorAuth("Completa los datos de acceso");
-    const emailSimulado = `${userClean}@talleres.com`;
-    try {
-      await signInWithEmailAndPassword(auth, emailSimulado, password);
-    } catch (error: any) {
-      if (
-        error.code === "auth/user-not-found" ||
-        error.code === "auth/invalid-credential"
-      ) {
-        try {
-          const credencial = await createUserWithEmailAndPassword(
-            auth,
-            emailSimulado,
-            password
-          );
-          let rolAsignado = "entrenador";
-          if (userClean === "admin" || userClean === "baltha")
-            rolAsignado = "admin";
-          else if (userClean === "coordinador") rolAsignado = "coordinador";
+  const asignarRol = (
+    nombreJugadora: string,
+    rol: "titular" | "suplente" | "ninguno"
+  ) => {
+    setTitulares((prev) => prev.filter((j) => j !== nombreJugadora));
+    setSuplentes((prev) => prev.filter((j) => j !== nombreJugadora));
+    if (rol === "titular") setTitulares((prev) => [...prev, nombreJugadora]);
+    if (rol === "suplente") setSuplentes((prev) => [...prev, nombreJugadora]);
+  };
 
-          const nuevoPerfil = {
-            email: emailSimulado,
-            identificador: userClean,
-            rol: rolAsignado,
-            categoriasPermitidas:
-              rolAsignado === "admin" || rolAsignado === "coordinador"
-                ? []
-                : ["sub14"],
-          };
-          await setDoc(doc(db, "usuarios", credencial.user.uid), nuevoPerfil);
-          setPerfilUsuario(nuevoPerfil);
-        } catch (crearErr) {
-          setErrorAuth("Error de red o contraseña inválida.");
-        }
-      } else {
-        setErrorAuth("Usuario o contraseña incorrectos.");
-      }
+  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rival.trim() || !usuario)
+      return alert("Por favor ingresá un rival válido.");
+    const equipoActual = listaEquipos.find(
+      (eq) => eq.id === equipoSeleccionado
+    );
+    const nuevoId = `${fecha}_${equipoSeleccionado}_vs_${rival
+      .toLowerCase()
+      .replace(/ /g, "_")}`;
+    setIdPartido(nuevoId);
+
+    const estructuraInyectada: any = { "1Q": {}, "2Q": {}, "3Q": {}, "4Q": {} };
+    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
+      botonesDinamicos.forEach((b) => {
+        estructuraInyectada[q][b.id] = 0;
+        (b.subetiquetas || []).forEach((s: string) => {
+          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
+          estructuraInyectada[q][subId] = 0;
+        });
+      });
+      estructuraInyectada[q]["goles_favor"] = 0;
+      estructuraInyectada[q]["goles_contra"] = 0;
+    });
+
+    try {
+      await setDoc(doc(db, "partidos_club", nuevoId), {
+        id_partido: nuevoId,
+        id_categoria: equipoSeleccionado,
+        club_local: "Talleres de Paraná",
+        categoria: equipoActual ? equipoActual.nombre : "",
+        rival,
+        cancha,
+        fecha,
+        titulares,
+        suplentes,
+        estadisticas: estructuraInyectada,
+        configuracion_botones: botonesDinamicos,
+      });
+      setEstadisticas(estructuraInyectada);
+      setPartidoIniciado(true);
+    } catch (err) {
+      console.error(err);
     }
+  };
+
+  const reingresarAPartido = (partido: any) => {
+    setIdPartido(partido.id_partido || partido.id);
+    setRival(partido.rival || "");
+    setCancha(partido.cancha || "");
+    setFecha(partido.fecha || "");
+    setTitulares(partido.titulares || []);
+    setSuplentes(partido.suplentes || []);
+    setEquipoSeleccionado(partido.id_categoria);
+    setEstadisticas(partido.estadisticas || ESTRUCTURA_INICIAL_ESTADISTICAS);
+    setPartidoIniciado(true);
   };
 
   const crearNuevoEquipo = async (e: React.FormEvent) => {
@@ -892,6 +940,146 @@ export default function App() {
       console.error(err);
     }
   };
+
+  if (cargandoAuth) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
+        <h2>🔄 Cargando Sistema de Estadísticas...</h2>
+      </div>
+    );
+  }
+
+  if (!usuario) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#111827",
+          color: "white",
+          minHeight: "100vh",
+          fontFamily: "sans-serif",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          padding: "16px",
+        }}
+      >
+        <div
+          style={{
+            backgroundColor: "#1f2937",
+            padding: "28px",
+            borderRadius: "12px",
+            border: "1px solid #374151",
+            width: "100%",
+            maxWidth: "400px",
+            boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+          }}
+        >
+          <h2
+            style={{
+              textAlign: "center",
+              color: "#60a5fa",
+              marginTop: 0,
+              marginBottom: "4px",
+            }}
+          >
+            🏑 CLUB TALLERES
+          </h2>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#9ca3af",
+              fontSize: "13px",
+              marginTop: 0,
+              marginBottom: "20px",
+            }}
+          >
+            Estadísticas y Análisis de Partidos
+          </p>
+          <form
+            onSubmit={manejarLoginClub}
+            style={{ display: "flex", flexDirection: "column", gap: "14px" }}
+          >
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Usuario / Entrenador:
+              </label>
+              <input
+                type="text"
+                value={identificadorProfe}
+                onChange={(e) => setIdentificadorProfe(e.target.value)}
+                placeholder="Ej: baltha o coordinador"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "6px",
+                  fontSize: "14px",
+                  color: "#d1d5db",
+                }}
+              >
+                Contraseña del Club:
+              </label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="******"
+                style={estiloInput as any}
+                required
+              />
+            </div>
+            {errorAuth && (
+              <div
+                style={{
+                  color: "#ef4444",
+                  fontSize: "13px",
+                  textAlign: "center",
+                  fontWeight: "bold",
+                }}
+              >
+                ⚠️ {errorAuth}
+              </div>
+            )}
+            <button
+              type="submit"
+              style={{
+                padding: "12px",
+                backgroundColor: "#2563eb",
+                color: "white",
+                border: "none",
+                borderRadius: "8px",
+                fontWeight: "bold",
+                fontSize: "15px",
+                cursor: "pointer",
+              }}
+            >
+              🔑 Ingresar
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const esAdmin = perfilUsuario?.rol === "admin";
   const esCoordinador = perfilUsuario?.rol === "coordinador";
@@ -2649,7 +2837,7 @@ export default function App() {
             </div>
           )}
 
-          {/* FLOTANTE SUBETIQUETAS */}
+          {/* DESGLOSE SUBETIQUETAS */}
           {botonActivoSubmenu && (
             <div
               style={{
