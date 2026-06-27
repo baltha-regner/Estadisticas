@@ -292,7 +292,8 @@ export default function App() {
       partidosFiltrados.sort((a, b) => b.fecha.localeCompare(a.fecha));
       setListaPartidosViejos(partidosFiltrados);
 
-      obtenerListaProfesDeFirestore();
+      // 🔥 ARREGLADO: Removido el fragmento duplicado roto que bloqueaba la carga de la base de datos
+      if (perfil.rol === "admin") obtenerListaProfesDeFirestore();
     } catch (e) {
       console.error(e);
     }
@@ -515,57 +516,49 @@ export default function App() {
     guardarBotonesEnFirestore(nuevaLista.map((b, i) => ({ ...b, orden: i })));
   };
 
-  const comenzarPartidoEnBaseDeDatos = async (e: React.FormEvent) => {
+  const manejarLoginClub = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rival.trim() || !usuario) return alert("Poné el nombre del rival");
-    const equipoActual = listaEquipos.find(
-      (eq) => eq.id === equipoSeleccionado
-    );
-    const nuevoId = `${fecha}_${equipoSeleccionado}_vs_${rival
-      .toLowerCase()
-      .replace(/ /g, "_")}`;
-    setIdPartido(nuevoId);
+    setErrorAuth("");
+    const userClean = identificadorProfe.trim().toLowerCase();
+    if (!userClean || !password.trim())
+      return setErrorAuth("Completa los datos de acceso");
+    const emailSimulado = `${userClean}@talleres.com`;
+    try {
+      await signInWithEmailAndPassword(auth, emailSimulado, password);
+    } catch (error: any) {
+      if (
+        error.code === "auth/user-not-found" ||
+        error.code === "auth/invalid-credential"
+      ) {
+        try {
+          const credencial = await createUserWithEmailAndPassword(
+            auth,
+            emailSimulado,
+            password
+          );
+          let rolAsignado = "entrenador";
+          if (userClean === "admin" || userClean === "baltha")
+            rolAsignado = "admin";
+          else if (userClean === "coordinador") rolAsignado = "coordinador";
 
-    const estructuraInyectada: any = { "1Q": {}, "2Q": {}, "3Q": {}, "4Q": {} };
-    ["1Q", "2Q", "3Q", "4Q"].forEach((q) => {
-      botonesDinamicos.forEach((b) => {
-        estructuraInyectada[q][b.id] = 0;
-        (b.subetiquetas || []).forEach((s: string) => {
-          const subId = `${b.id}__${s.toLowerCase().replace(/ /g, "_")}`;
-          estructuraInyectada[q][subId] = 0;
-        });
-      });
-      estructuraInyectada[q]["goles_favor"] = 0;
-      estructuraInyectada[q]["goles_contra"] = 0;
-    });
-
-    await setDoc(doc(db, "partidos_club", nuevoId), {
-      id_partido: nuevoId,
-      id_categoria: equipoSeleccionado,
-      club_local: "Talleres de Paraná",
-      categoria: equipoActual ? equipoActual.nombre : "",
-      rival,
-      cancha,
-      fecha,
-      titulares,
-      suplentes,
-      estadisticas: estructuraInyectada,
-      configuracion_botones: botonesDinamicos,
-    });
-    setEstadisticas(estructuraInyectada);
-    setPartidoIniciado(true);
-  };
-
-  const reingresarAPartido = (partido: any) => {
-    setIdPartido(partido.id_partido || partido.id);
-    setRival(partido.rival || "");
-    setCancha(partido.cancha || "");
-    setFecha(partido.fecha || "");
-    setTitulares(partido.titulares || []);
-    setSuplentes(partido.suplentes || []);
-    setEquipoSeleccionado(partido.id_categoria);
-    setEstadisticas(partido.estadisticas || ESTRUCTURA_INICIAL_ESTADISTICAS);
-    setPartidoIniciado(true);
+          const nuevoPerfil = {
+            email: emailSimulado,
+            identificador: userClean,
+            rol: rolAsignado,
+            categoriasPermitidas:
+              rolAsignado === "admin" || rolAsignado === "coordinador"
+                ? []
+                : ["sub14"],
+          };
+          await setDoc(doc(db, "usuarios", credencial.user.uid), nuevoPerfil);
+          setPerfilUsuario(nuevoPerfil);
+        } catch (crearErr) {
+          setErrorAuth("Error de red o contraseña inválida.");
+        }
+      } else {
+        setErrorAuth("Usuario o contraseña incorrectos.");
+      }
+    }
   };
 
   const crearNuevoEquipo = async (e: React.FormEvent) => {
@@ -641,7 +634,6 @@ export default function App() {
     }
   };
 
-  // 🔥 RESTAURADO: Definición explícita de obtenerEstadisticasAcumuladas para evitar pantalla negra
   const obtenerEstadisticasAcumuladas = () => {
     const partidosCategoria = listaPartidosViejos.filter(
       (p) => p.id_categoria === equipoSeleccionado
