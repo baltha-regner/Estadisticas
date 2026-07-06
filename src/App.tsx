@@ -1023,7 +1023,7 @@ export default function App() {
                 type="text"
                 value={identificadorProfe}
                 onChange={(e) => setIdentificadorProfe(e.target.value)}
-                placeholder="Ej: baltha o coordinador"
+                placeholder="Usuario"
                 style={estiloInput as any}
                 required
               />
@@ -1037,7 +1037,7 @@ export default function App() {
                   color: "#d1d5db",
                 }}
               >
-                Contraseña del Club:
+                Contraseña:
               </label>
               <input
                 type="password"
