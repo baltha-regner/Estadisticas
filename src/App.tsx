@@ -242,7 +242,6 @@ export default function App() {
     return () => desuscribirAuth();
   }, []);
 
-  // 🔥 FIJADO: Agregada la función manejarLoginClub faltante para procesar el ingreso de los profes
   const manejarLoginClub = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorAuth("");
@@ -933,6 +932,97 @@ export default function App() {
       link.download = `Planilla_${nombreCategoria.replace(/ /g, "_")}_${
         pTarget.fecha
       }_vs_${(pTarget.rival || "Rival").replace(/ /g, "_")}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // 🔥 NUEVO: Función para exportar el Informe Consolidado de la Temporada Completa
+  const exportarInformeTemporada = async () => {
+    const statsAcum = obtenerEstadisticasAcumuladas();
+    const nombreCat =
+      listaEquipos.find((e) => e.id === equipoSeleccionado)?.nombre ||
+      "Categoría";
+    try {
+      const ExcelJS = await import("exceljs");
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Informe de Temporada");
+      worksheet.columns = [{ width: 35 }, { width: 18 }, { width: 18 }];
+
+      const fontNegrita = { name: "Calibri", bold: true, size: 11 };
+      const borderFino = {
+        top: { style: "thin" as any },
+        left: { style: "thin" as any },
+        bottom: { style: "thin" as any },
+        right: { style: "thin" as any },
+      };
+      const alinearCentro = {
+        horizontal: "center" as any,
+        vertical: "middle" as any,
+      };
+
+      worksheet.mergeCells("A1:C1");
+      worksheet.getCell(
+        "A1"
+      ).value = `REPORTE CONSOLIDADO – ${nombreCat.toUpperCase()}`;
+      worksheet.getCell("A1").font = { name: "Calibri", bold: true, size: 14 };
+      worksheet.getCell("A1").alignment = alinearCentro;
+      worksheet.getRow(1).height = 30;
+
+      worksheet.getRow(3).height = 20;
+      worksheet.getCell(
+        "A3"
+      ).value = `Partidos Auditados de la Temporada: ${statsAcum.partidosTotales}`;
+      worksheet.getCell("A3").font = fontNegrita;
+
+      worksheet.getRow(5).height = 22;
+      worksheet.getCell("A5").value = "Métrica / Descriptor Táctico";
+      worksheet.getCell("B5").value = "Volumen Total Anual";
+      worksheet.getCell("C5").value = "Promedio Medio p/p";
+      ["A5", "B5", "C5"].forEach((c) => {
+        worksheet.getCell(c).font = fontNegrita;
+        worksheet.getCell(c).border = borderFino;
+        worksheet.getCell(c).alignment = alinearCentro;
+      });
+
+      let fila = 5;
+      const agregarFilaInforme = (label: string, idCampo: string) => {
+        fila++;
+        worksheet.getRow(fila).height = 20;
+        worksheet.getCell(`A${fila}`).value = label;
+        worksheet.getCell(`A${fila}`).border = borderFino;
+        worksheet.getCell(`B${fila}`).value = statsAcum.totales[idCampo] || 0;
+        worksheet.getCell(`B${fila}`).border = borderFino;
+        worksheet.getCell(`B${fila}`).alignment = alinearCentro;
+        worksheet.getCell(`C${fila}`).value = statsAcum.promedios[idCampo] || 0;
+        worksheet.getCell(`C${fila}`).border = borderFino;
+        worksheet.getCell(`C${fila}`).alignment = alinearCentro;
+      };
+
+      agregarFilaInforme("⚽ Goles a Favor (CAT)", "goles_favor");
+      agregarFilaInforme("⚽ Goles en Contra (Rival)", "goles_contra");
+
+      botonesDinamicos
+        .filter((b) => !b.esGol)
+        .forEach((btn) => {
+          agregarFilaInforme(btn.nombre.toUpperCase(), btn.id);
+          (btn.subetiquetas || []).forEach((sub: string) => {
+            const subId = `${btn.id}__${sub.toLowerCase().replace(/ /g, "_")}`;
+            agregarFilaInforme(`   ↳ ${sub}`, subId);
+          });
+        });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Informe_Temporada_${nombreCat.replace(/ /g, "_")}.xlsx`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2276,14 +2366,42 @@ export default function App() {
                 gap: "16px",
               }}
             >
-              <div style={{ textAlign: "center" }}>
-                <h3 style={{ margin: 0, color: "#34d399" }}>
-                  📊 DESEMPEÑO GLOBAL ACUMULADO
-                </h3>
-                <span style={{ fontSize: "13px", color: "#9ca3af" }}>
-                  Encuentros auditados de la temporada:{" "}
-                  {datosAcumulados.partidosTotales}
-                </span>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  borderBottom: "1px solid #374151",
+                  paddingBottom: "12px",
+                }}
+              >
+                <div style={{ textAlign: "left" }}>
+                  <h3 style={{ margin: 0, color: "#34d399" }}>
+                    📊 DESEMPEÑO GLOBAL ACUMULADO
+                  </h3>
+                  <span style={{ fontSize: "13px", color: "#9ca3af" }}>
+                    Encuentros auditados de la temporada:{" "}
+                    {datosAcumulados.partidosTotales}
+                  </span>
+                </div>
+                {datosAcumulados.partidosTotales > 0 && (
+                  /* 🔥 NUEVO: Botón para descargar el Excel ejecutivo anual */
+                  <button
+                    onClick={exportarInformeTemporada}
+                    style={{
+                      padding: "8px 12px",
+                      backgroundColor: "#16a34a",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "6px",
+                      fontWeight: "bold",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                    }}
+                  >
+                    📥 Informe Anual (.xlsx)
+                  </button>
+                )}
               </div>
 
               {datosAcumulados.partidosTotales === 0 ? (
